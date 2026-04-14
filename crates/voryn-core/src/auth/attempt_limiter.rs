@@ -18,11 +18,7 @@ pub struct AttemptConfig {
 
 impl Default for AttemptConfig {
     fn default() -> Self {
-        Self {
-            max_attempts: 10,
-            failed_count: 0,
-            progressive_delay: true,
-        }
+        Self { max_attempts: 10, failed_count: 0, progressive_delay: true }
     }
 }
 
@@ -43,10 +39,7 @@ impl AttemptConfig {
             0
         };
 
-        AttemptResult::RetryAfter {
-            remaining,
-            delay_ms,
-        }
+        AttemptResult::RetryAfter { remaining, delay_ms }
     }
 
     /// Record a successful attempt (reset counter).
@@ -66,10 +59,7 @@ pub enum AttemptResult {
     /// Wipe threshold reached — destroy all data.
     WipeTriggered,
     /// Retry allowed after delay.
-    RetryAfter {
-        remaining: u32,
-        delay_ms: u64,
-    },
+    RetryAfter { remaining: u32, delay_ms: u64 },
 }
 
 #[cfg(test)]
@@ -94,11 +84,8 @@ mod tests {
 
     #[test]
     fn test_wipe_triggered_at_limit() {
-        let mut config = AttemptConfig {
-            max_attempts: 3,
-            failed_count: 0,
-            progressive_delay: false,
-        };
+        let mut config =
+            AttemptConfig { max_attempts: 3, failed_count: 0, progressive_delay: false };
 
         config.record_failure();
         config.record_failure();

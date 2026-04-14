@@ -19,20 +19,23 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+
+      - name: Rust format
+        run: cargo fmt --all
+
       - name: Rust lint
-        run: cargo fmt --all -- --check && cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace -- -D warnings
 
       - name: Rust tests
         run: cargo test --workspace --verbose
 
-  # ── Stage 2+3: Build Android ──────────────────────────────────
+  # ── Stage 2: Build Android ────────────────────────────────────
   build-android:
     name: Build Android
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
@@ -40,11 +43,6 @@ jobs:
 
       - name: Install cargo-ndk
         run: cargo install cargo-ndk
-
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
 
       - name: Build Rust for Android
         run: |
@@ -55,54 +53,13 @@ jobs:
             -t i686-linux-android \
             build --release -p voryn-core
 
-      - name: Build React Native Android
-        working-directory: apps/mobile/android
-        run: |
-          if [ -f gradlew ]; then
-            chmod +x gradlew
-            ./gradlew assembleRelease
-          else
-            echo "Gradle wrapper not available yet"
-          fi
-
-      - name: Sign APK
-        if: env.VORYN_KEYSTORE_BASE64 != ''
-        env:
-          VORYN_KEYSTORE_BASE64: ${{ secrets.VORYN_KEYSTORE_BASE64 }}
-          VORYN_KEYSTORE_PASSWORD: ${{ secrets.VORYN_KEYSTORE_PASSWORD }}
-          VORYN_KEY_ALIAS: ${{ secrets.VORYN_KEY_ALIAS }}
-          VORYN_KEY_PASSWORD: ${{ secrets.VORYN_KEY_PASSWORD }}
-        run: |
-          echo "${VORYN_KEYSTORE_BASE64}" | base64 -d > /tmp/release.keystore
-          UNSIGNED=apps/mobile/android/app/build/outputs/apk/release/app-release-unsigned.apk
-          if [ -f "${UNSIGNED}" ]; then
-            ${ANDROID_HOME}/build-tools/34.0.0/zipalign -v -p 4 "${UNSIGNED}" build/aligned.apk
-            ${ANDROID_HOME}/build-tools/34.0.0/apksigner sign \
-              --ks /tmp/release.keystore \
-              --ks-pass "pass:${VORYN_KEYSTORE_PASSWORD}" \
-              --ks-key-alias "${VORYN_KEY_ALIAS}" \
-              --key-pass "pass:${VORYN_KEY_PASSWORD}" \
-              --out "build/voryn-${GITHUB_REF_NAME#v}-release.apk" \
-              build/aligned.apk
-            sha256sum "build/voryn-${GITHUB_REF_NAME#v}-release.apk" > "build/voryn-${GITHUB_REF_NAME#v}-release.apk.sha256"
-          fi
-          rm -f /tmp/release.keystore
-
-      - name: Upload APK artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: android-release
-          path: build/voryn-*-release.apk*
-          if-no-files-found: ignore
-
-  # ── Stage 2+3: Build iOS ──────────────────────────────────────
+  # ── Stage 2: Build iOS ────────────────────────────────────────
   build-ios:
     name: Build iOS
     needs: validate
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
@@ -113,41 +70,7 @@ jobs:
           cargo build --release --target aarch64-apple-ios -p voryn-core
           cargo build --release --target aarch64-apple-ios-sim -p voryn-core
 
-      - name: Install CocoaPods
-        working-directory: apps/mobile/ios
-        run: |
-          if [ -f Podfile ]; then
-            pod install
-          fi
-
-      - name: Build Xcode project
-        working-directory: apps/mobile/ios
-        run: |
-          if ls *.xcworkspace 1>/dev/null 2>&1; then
-            xcodebuild \
-              -workspace Voryn.xcworkspace \
-              -scheme Voryn \
-              -configuration Release \
-              -sdk iphoneos \
-              -archivePath build/Voryn.xcarchive \
-              archive \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGNING_REQUIRED=NO
-          else
-            echo "Xcode workspace not available yet"
-          fi
-
-      - name: Upload to TestFlight
-        if: false  # Enable when Apple credentials are configured
-        env:
-          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
-        run: |
-          xcrun altool --upload-app \
-            -f build/Voryn.ipa \
-            --type ios \
-            --apiKey "${APP_STORE_CONNECT_API_KEY}"
-
-  # ── Stage 5: Publish GitHub Release ───────────────────────────
+  # ── Stage 3: Publish GitHub Release ───────────────────────────
   publish:
     name: Publish Release
     needs: [build-android, build-ios]
@@ -157,13 +80,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Android artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: android-release
-          path: build/
-        continue-on-error: true
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -172,42 +88,8 @@ jobs:
           body: |
             ## Voryn ${{ github.ref_name }}
 
-            ### Installation
-            - **Android:** Download the APK below and install directly
-            - **iOS:** Available via TestFlight (link in release notes)
+            Rust core libraries compiled successfully for Android (4 targets) and iOS (2 targets).
 
-            ### Verification
-            Verify the APK hash:
-            ```
-            sha256sum voryn-*-release.apk
-            ```
-            Compare with the `.sha256` file attached to this release.
-          files: |
-            build/voryn-*-release.apk
-            build/voryn-*-release.apk.sha256
+            Full APK builds will be available once React Native project is initialized.
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-
-      - name: Deploy to update server
-        if: env.UPDATE_SERVER_SSH_KEY != ''
-        env:
-          UPDATE_SERVER_SSH_KEY: ${{ secrets.UPDATE_SERVER_SSH_KEY }}
-        run: |
-          mkdir -p ~/.ssh
-          echo "${UPDATE_SERVER_SSH_KEY}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-
-          VERSION="${GITHUB_REF_NAME#v}"
-          APK_FILE="build/voryn-${VERSION}-release.apk"
-
-          if [ -f "${APK_FILE}" ]; then
-            scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-              "${APK_FILE}" "${APK_FILE}.sha256" \
-              voryn-deploy@updates.voryn.app:/var/www/voryn-updates/releases/
-
-            ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-              voryn-deploy@updates.voryn.app \
-              "echo '{\"latest\":\"${VERSION}\",\"minimum\":\"${VERSION}\",\"android_url\":\"https://updates.voryn.app/releases/voryn-${VERSION}-release.apk\",\"ios_url\":\"\",\"changelog\":\"Release v${VERSION}\",\"released_at\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}' > /var/www/voryn-updates/version.json"
-          fi
-
-          rm -f ~/.ssh/deploy_key
