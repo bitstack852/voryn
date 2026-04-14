@@ -169,31 +169,6 @@ impl Session {
         self.sending_chain = Some(Chain::new(ChainKey::new(send_chain_key)));
     }
 
-    /// Skip message keys in a chain up to a target index, storing them for later.
-    fn skip_message_keys(&mut self, chain: &mut Chain, until: u32) -> Result<(), String> {
-        if chain.index() + MAX_SKIP < until {
-            return Err("Too many skipped messages".into());
-        }
-        let dh_pub = self.dh_remote_public.unwrap_or([0; 32]);
-        while chain.index() < until {
-            let mk = chain.next_message_key();
-            self.skipped_keys.insert((dh_pub, chain.index() - 1), mk.as_bytes().to_vec());
-        }
-        Ok(())
-    }
-
-    fn skip_message_keys_in(&mut self, chain: &mut Chain, until: u32) -> Result<(), String> {
-        if chain.index() + MAX_SKIP < until {
-            return Err("Too many skipped messages".into());
-        }
-        let dh_pub = self.dh_remote_public.unwrap_or([0; 32]);
-        while chain.index() < until {
-            let mk = chain.next_message_key();
-            self.skipped_keys.insert((dh_pub, chain.index() - 1), mk.as_bytes().to_vec());
-        }
-        Ok(())
-    }
-
     /// Serialize session state for storage.
     pub fn serialize(&self) -> Result<Vec<u8>, String> {
         bincode::serialize(self).map_err(|e| e.to_string())

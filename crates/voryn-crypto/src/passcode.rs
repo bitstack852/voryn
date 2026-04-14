@@ -48,7 +48,7 @@ pub fn derive_key_from_passcode(
             passcode.len() as u64,
             params.salt.as_ptr(),
             params.iterations as u64,
-            (params.memory_kib as usize * 1024) as usize,
+            params.memory_kib as usize * 1024,
             libsodium_sys::crypto_pwhash_ALG_ARGON2ID13 as i32,
         )
     };

@@ -42,6 +42,12 @@ pub struct RevocationList {
     revoked: std::collections::HashSet<Vec<u8>>,
 }
 
+impl Default for RevocationList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RevocationList {
     pub fn new() -> Self {
         Self {
