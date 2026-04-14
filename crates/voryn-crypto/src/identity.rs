@@ -47,17 +47,59 @@ impl Drop for SecretKeyWrapper {
     }
 }
 
-/// Generate a new Ed25519 identity.
+/// Full identity result including the secret key for secure storage.
+pub struct IdentityWithSecret {
+    pub identity: Identity,
+    pub keypair: Keypair,
+}
+
+/// Generate a new Ed25519 identity (public key only — secret is discarded).
+/// Use `generate_full_identity` when you need to persist the secret key.
 pub fn generate_identity() -> Result<Identity, CryptoError> {
+    let full = generate_full_identity()?;
+    Ok(full.identity)
+}
+
+/// Generate a full identity with both public and secret keys.
+/// The secret key must be stored in the hardware keystore or SQLCipher.
+pub fn generate_full_identity() -> Result<IdentityWithSecret, CryptoError> {
     crate::init()?;
 
-    let (pk, _sk) = sign::gen_keypair();
+    let (pk, sk) = sign::gen_keypair();
     let public_key = pk.as_ref().to_vec();
     let public_key_hex = hex::encode(&public_key);
 
+    Ok(IdentityWithSecret {
+        identity: Identity {
+            public_key,
+            public_key_hex,
+        },
+        keypair: Keypair {
+            public_key: pk,
+            secret_key: SecretKeyWrapper::new(&sk),
+        },
+    })
+}
+
+/// Reconstruct an Identity from raw public key bytes.
+pub fn identity_from_public_key(public_key: &[u8]) -> Result<Identity, CryptoError> {
+    if public_key.len() != 32 {
+        return Err(CryptoError::KeyGenFailed);
+    }
     Ok(Identity {
-        public_key,
-        public_key_hex,
+        public_key: public_key.to_vec(),
+        public_key_hex: hex::encode(public_key),
+    })
+}
+
+/// Reconstruct a Keypair from raw secret key bytes (64 bytes).
+pub fn keypair_from_secret_key(secret_key_bytes: &[u8]) -> Result<Keypair, CryptoError> {
+    let sk = sign::SecretKey::from_slice(secret_key_bytes)
+        .ok_or(CryptoError::KeyGenFailed)?;
+    let pk = sk.public_key();
+    Ok(Keypair {
+        public_key: pk,
+        secret_key: SecretKeyWrapper::new(&sk),
     })
 }
 

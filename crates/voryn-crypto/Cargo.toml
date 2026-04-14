@@ -8,6 +8,7 @@ description = "Cryptographic primitives for Voryn — identity, signing, encrypt
 
 [dependencies]
 sodiumoxide.workspace = true
+libsodium-sys.workspace = true
 zeroize.workspace = true
 rand.workspace = true
 serde.workspace = true

@@ -8,6 +8,7 @@
 //! - Auto-delete timers
 
 pub mod message;
+pub mod exchange;
 pub mod double_ratchet;
 pub mod x3dh;
 pub mod group;

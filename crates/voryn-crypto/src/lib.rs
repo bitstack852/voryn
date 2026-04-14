@@ -7,6 +7,7 @@ pub mod identity;
 pub mod keys;
 pub mod signing;
 pub mod encryption;
+pub mod dh;
 pub mod kdf;
 pub mod secure_memory;
 

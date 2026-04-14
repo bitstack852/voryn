@@ -4,12 +4,14 @@ import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { ContactsScreen } from '../screens/ContactsScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { AddContactScreen } from '../screens/AddContactScreen';
 
 export type RootStackParamList = {
   Onboarding: undefined;
   Contacts: undefined;
   Chat: { contactPubkeyHex: string; displayName?: string };
   Settings: undefined;
+  AddContact: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -46,6 +48,11 @@ export const RootNavigator: React.FC = () => {
         name="Settings"
         component={SettingsScreen}
         options={{ title: 'Settings' }}
+      />
+      <Stack.Screen
+        name="AddContact"
+        component={AddContactScreen}
+        options={{ title: 'Add Contact' }}
       />
     </Stack.Navigator>
   );
