@@ -151,7 +151,7 @@ mod tests {
     fn test_get_contact_by_pubkey() {
         let conn = open_memory_database().unwrap();
         let hex = "03".repeat(32);
-        insert_contact(&conn, &vec![3u8; 32], &hex, Some("Bob")).unwrap();
+        insert_contact(&conn, &[3u8; 32], &hex, Some("Bob")).unwrap();
 
         let contact = get_contact_by_pubkey(&conn, &hex).unwrap().unwrap();
         assert_eq!(contact.display_name, Some("Bob".to_string()));
@@ -164,7 +164,7 @@ mod tests {
     fn test_block_contact() {
         let conn = open_memory_database().unwrap();
         let hex = "04".repeat(32);
-        insert_contact(&conn, &vec![4u8; 32], &hex, Some("Eve")).unwrap();
+        insert_contact(&conn, &[4u8; 32], &hex, Some("Eve")).unwrap();
 
         block_contact(&conn, &hex).unwrap();
         let contacts = get_contacts(&conn).unwrap();

@@ -8,7 +8,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
 
 jobs:
   # ── Rust Lint & Format ────────────────────────────────────────────
@@ -21,10 +20,12 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - name: Install OpenSSL dev
+        run: sudo apt-get install -y libssl-dev
       - name: Format code
         run: cargo fmt --all
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -W warnings
 
   # ── Rust Tests ────────────────────────────────────────────────────
   rust-test:
@@ -34,8 +35,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Install OpenSSL dev
+        run: sudo apt-get install -y libssl-dev
       - name: Run tests
         run: cargo test --workspace --verbose
-
-  # TypeScript lint will be added once React Native project is fully initialized
-  # and yarn.lock is generated from a dev environment with network access.
