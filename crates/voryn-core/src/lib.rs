@@ -6,6 +6,7 @@
 pub mod auth;
 pub mod keystore;
 pub mod messaging;
+pub mod wipe;
 
 use voryn_crypto::identity::{Identity, IdentityWithSecret};
 

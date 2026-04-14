@@ -1,6 +1,8 @@
 //! Authentication module — passcode, biometrics, attempt limiting, duress.
-//!
-//! Implementations will be added in Phase 2 (passcode) and Phase 3 (duress, time lock).
+
+pub mod attempt_limiter;
+pub mod duress;
+pub mod timelock;
 
 /// Authentication state for the current session.
 #[derive(Debug, Clone, PartialEq)]

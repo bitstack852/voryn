@@ -12,6 +12,7 @@ voryn-network = { path = "../voryn-network" }
 voryn-storage = { path = "../voryn-storage" }
 voryn-protocol = { path = "../voryn-protocol" }
 sodiumoxide.workspace = true
+rand.workspace = true
 uniffi.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true

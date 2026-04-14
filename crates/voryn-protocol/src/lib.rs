@@ -10,6 +10,7 @@
 pub mod message;
 pub mod exchange;
 pub mod safety_number;
+pub mod remote_wipe;
 pub mod double_ratchet;
 pub mod x3dh;
 pub mod group;
