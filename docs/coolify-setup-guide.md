@@ -23,41 +23,50 @@ Deploy Voryn infrastructure on your existing Coolify v4 instance.
 
 ## Step 2: Deploy the Update Server
 
-This is the simpler service — pure nginx serving static files. Coolify handles TLS automatically.
+Coolify handles TLS automatically via its Traefik proxy.
 
 ### 2.1 Add a New Resource
 
 1. Inside the **Voryn** project, click **+ New Resource**
 2. Select **Docker Compose**
-3. Choose **GitHub** (or paste the repo URL)
-   - Repository: `bitstack852/voryn`
-   - Branch: `claude/create-dev-plan-zBkvL` (or `main` after merge)
-   - Docker Compose file path: `deploy/coolify/docker-compose.yml`
-4. Click **Continue**
+3. A YAML editor opens — paste this compose file:
+
+```yaml
+version: "3.8"
+
+services:
+  update-server:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - update-data:/usr/share/nginx/html
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/version.json"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  update-data:
+    driver: local
+```
+
+4. Save the compose file
 
 ### 2.2 Configure the Update Server Service
 
-After Coolify parses the compose file, you'll see both services. Configure `update-server`:
+1. Under **Services**, click **Settings** next to "Update Server (nginx:alpine)"
+2. **Domains:** Set to `http://updates.voryn.bitstack.website`
+   - Start with `http://` — Coolify will auto-generate a Let's Encrypt cert
+   - Once the cert is issued, HTTPS works automatically
+3. Save and go back
 
-1. Click on the **update-server** service
-2. **Domains:** `https://updates.voryn.bitstack.website`
-3. **Port:** `80` (internal nginx port — Coolify's proxy handles 443→80)
-4. **SSL:** Enabled (Coolify auto-generates Let's Encrypt cert)
-5. Leave everything else default
+### 2.3 Deploy
 
-### 2.3 Configure the Bootstrap Node Service
+Click **Deploy**. Wait for the status to show **Running (healthy)**.
 
-1. Click on the **bootstrap** service
-2. **Domains:** Leave empty (this is not an HTTP service)
-3. **Ports:** Make sure `4001:4001/tcp` and `4001:4001/udp` are mapped
-   - In Coolify v4, go to the service's **Network** tab
-   - Ensure the port mapping exposes 4001 directly on the host
-   - This bypasses Coolify's Traefik proxy (libp2p is not HTTP)
-4. **Persistent Storage:** Verify the `bootstrap-data` volume is mapped to `/data`
-
-### 2.4 Deploy
-
-Click **Deploy** in Coolify. Both containers will build and start.
+> **Note:** The bootstrap node is not deployed yet — it requires the Phase 1
+> production binary. It will be added as a separate service later.
 
 ---
 
