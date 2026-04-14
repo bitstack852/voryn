@@ -1,292 +1,409 @@
-# Deployment Plan
+# Deployment Plan — Infrastructure Setup & App Deployments
 
-## Overview
+## Table of Contents
 
-Voryn is a fully decentralized app — there are no application servers to deploy. Deployment consists of:
-
-1. **Bootstrap nodes** — seed peers for DHT network discovery
-2. **Update server** — static file hosting for version checks and APK downloads
-3. **CI/CD pipeline** — automated build, test, sign, and publish
-4. **App releases** — iOS (TestFlight) and Android (signed APK)
+1. [Infrastructure Overview](#1-infrastructure-overview)
+2. [Bootstrap Node Setup](#2-bootstrap-node-setup)
+3. [Update Server Setup](#3-update-server-setup)
+4. [DNS & Domain Configuration](#4-dns--domain-configuration)
+5. [CI/CD Secrets Configuration](#5-cicd-secrets-configuration)
+6. [App Build & Signing](#6-app-build--signing)
+7. [Release Process](#7-release-process)
+8. [Post-Deployment Verification](#8-post-deployment-verification)
+9. [Environments](#9-environments)
+10. [Monitoring & Alerting](#10-monitoring--alerting)
+11. [Rollback Procedures](#11-rollback-procedures)
+12. [Maintenance Runbook](#12-maintenance-runbook)
 
 ---
 
-## 1. Infrastructure
+## 1. Infrastructure Overview
 
-### Bootstrap Nodes
+Voryn is decentralized — there are no application servers. The infrastructure consists of:
 
-Bootstrap nodes are regular Voryn libp2p nodes that remain online 24/7 to help new devices join the DHT network. They do **not** store messages or relay traffic — they only assist with peer discovery.
+```
+┌──────────────────────────────────────────────────────┐
+│                    DNS (voryn.app)                    │
+│  boot1.voryn.app  boot2.voryn.app  boot3.voryn.app  │
+│                updates.voryn.app                      │
+└──────────────┬───────────────────────┬───────────────┘
+               │                       │
+    ┌──────────▼──────────┐  ┌────────▼─────────┐
+    │   Bootstrap Nodes   │  │   Update Server   │
+    │  (3x VPS, minimal)  │  │  (1x VPS, nginx)  │
+    │                     │  │                    │
+    │  - DHT peer routing │  │  - version.json    │
+    │  - No msg storage   │  │  - APK hosting     │
+    │  - No relay traffic │  │  - SHA-256 hashes  │
+    └─────────────────────┘  └────────────────────┘
 
-**Requirements:**
-- 2-3 VPS instances across different providers/regions for redundancy
-- Minimal resources: 1 vCPU, 512MB RAM, 10GB disk
-- Static IP or DNS hostname
-- Inbound TCP/UDP open on the libp2p listen port
+    ┌─────────────────────────────────────────────┐
+    │              GitHub Actions CI/CD            │
+    │  - Build: Rust + React Native (iOS/Android) │
+    │  - Sign: APK keystore / Xcode signing       │
+    │  - Publish: GitHub Release + Update Server   │
+    └─────────────────────────────────────────────┘
+```
 
-**Recommended providers (privacy-focused):**
-- Njalla (anonymous domain + VPS)
-- 1984 Hosting (Iceland, privacy-respecting)
-- BuyVM (offshore-friendly)
+**Total servers: 4** (3 bootstrap + 1 update server)
+**Monthly cost estimate: ~$20-40** (4x $5-10 VPS)
 
-**Deployment:**
+---
+
+## 2. Bootstrap Node Setup
+
+Bootstrap nodes help new devices find peers on the DHT. They store no user data.
+
+### 2.1 Provision a VPS
+
+**Specs:** 1 vCPU, 512MB RAM, 10GB SSD, Debian 12 or Ubuntu 22.04
+
+**Recommended providers:**
+| Provider | Location | Price | Notes |
+|----------|----------|-------|-------|
+| Njalla | Sweden | ~$15/mo | Anonymous registration, privacy-focused |
+| 1984 Hosting | Iceland | ~$5/mo | Strong privacy laws |
+| BuyVM | Luxembourg/US | ~$5/mo | DDoS-protected, affordable |
+
+Deploy 3 nodes across different providers/regions for redundancy.
+
+### 2.2 Run the Provisioning Script
+
 ```bash
-# On each bootstrap node
-git clone https://github.com/bitstack852/voryn.git
-cd voryn
-cargo build --release -p voryn-core
+# SSH into the VPS
+ssh root@<VPS_IP>
 
-# Run as systemd service
-sudo cp deploy/voryn-bootstrap.service /etc/systemd/system/
+# Download and run the provisioning script
+curl -sSf https://raw.githubusercontent.com/bitstack852/voryn/main/deploy/bootstrap/provision.sh | sudo bash
+```
+
+The script does:
+1. Installs system packages (build tools, ufw, fail2ban)
+2. Creates `voryn` system user under `/opt/voryn`
+3. Installs Rust and builds the project
+4. Configures firewall (SSH + port 4001 TCP/UDP only)
+5. Hardens SSH (key-only auth, no root login)
+6. Enables automatic security updates
+7. Applies kernel hardening (SYN flood protection, no IP forwarding)
+8. Installs the systemd service (not yet started)
+
+### 2.3 Build and Start the Node
+
+```bash
+# Build the bootstrap binary (after Phase 1 is production-ready)
+cd /opt/voryn
+sudo -u voryn git clone https://github.com/bitstack852/voryn.git src
+cd src
+cargo build --release -p voryn-network
+
+# Install the binary
+sudo cp target/release/voryn-bootstrap /opt/voryn/bin/
+
+# Start the service
 sudo systemctl enable --now voryn-bootstrap
+
+# Verify it's running
+sudo systemctl status voryn-bootstrap
+
+# Get the PeerId (needed for hardcoded bootstrap list)
+journalctl -u voryn-bootstrap | grep "PeerId"
+# Output: Voryn node starting with PeerId: 12D3KooW...
 ```
 
-**Bootstrap node systemd service:**
-```ini
-# deploy/voryn-bootstrap.service
-[Unit]
-Description=Voryn Bootstrap Node
-After=network.target
+### 2.4 Record Node Information
 
-[Service]
-Type=simple
-User=voryn
-ExecStart=/opt/voryn/voryn-bootstrap --listen /ip4/0.0.0.0/tcp/4001
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
+For each node, record:
+```
+Node:     boot1
+IP:       203.0.113.10
+PeerId:   12D3KooWxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+Port:     4001
+Provider: Njalla
+Region:   Sweden
 ```
 
-**Hardcoded bootstrap peers** (compiled into the app):
-```
-/dns4/boot1.voryn.app/tcp/4001/p2p/<PEER_ID_1>
-/dns4/boot2.voryn.app/tcp/4001/p2p/<PEER_ID_2>
-/dns4/boot3.voryn.app/tcp/4001/p2p/<PEER_ID_3>
-```
+### 2.5 Update the App Config
 
-### Update Server
-
-A simple static file server hosting `version.json` and Android APKs.
-
-**Requirements:**
-- Static site hosting (Cloudflare Pages, Netlify, or self-hosted nginx)
-- HTTPS required (certificate pinning in the app)
-- No dynamic backend — only static files
-
-**Structure:**
-```
-updates.voryn.app/
-  version.json           # Current version metadata
-  releases/
-    voryn-0.1.0.apk      # Signed Android APK
-    voryn-0.1.0.apk.sha256
-    voryn-0.2.0.apk
-    voryn-0.2.0.apk.sha256
-```
-
----
-
-## 2. Environments
-
-| Environment | Purpose | Bootstrap Nodes | Update Server |
-|------------|---------|-----------------|---------------|
-| **Development** | Local testing | Local nodes (localhost) | None |
-| **Staging** | Pre-release testing | 1 staging bootstrap node | staging.updates.voryn.app |
-| **Production** | Live users | 3 production bootstrap nodes | updates.voryn.app |
-
-### Environment Configuration
-
-The app determines its environment via a build-time flag:
-
+Add the PeerIds to `crates/voryn-network/src/config.rs`:
 ```rust
-// crates/voryn-network/src/config.rs
-#[cfg(feature = "staging")]
 pub const BOOTSTRAP_PEERS: &[&str] = &[
-    "/dns4/boot-staging.voryn.app/tcp/4001/p2p/...",
-];
-
-#[cfg(not(feature = "staging"))]
-pub const BOOTSTRAP_PEERS: &[&str] = &[
-    "/dns4/boot1.voryn.app/tcp/4001/p2p/...",
-    "/dns4/boot2.voryn.app/tcp/4001/p2p/...",
-    "/dns4/boot3.voryn.app/tcp/4001/p2p/...",
+    "/dns4/boot1.voryn.app/tcp/4001/p2p/12D3KooWxxxx...",
+    "/dns4/boot2.voryn.app/tcp/4001/p2p/12D3KooWyyyy...",
+    "/dns4/boot3.voryn.app/tcp/4001/p2p/12D3KooWzzzz...",
 ];
 ```
 
 ---
 
-## 3. CI/CD Release Pipeline
+## 3. Update Server Setup
 
-### Trigger
+Hosts `version.json` and signed APK files. Static content only — no dynamic backend.
 
-Releases are triggered by pushing a semver tag:
+### 3.1 Provision a VPS
+
+**Specs:** 1 vCPU, 512MB RAM, 20GB SSD (for APK storage), Debian 12
+
+### 3.2 Run the Provisioning Script
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+ssh root@<UPDATE_SERVER_IP>
+curl -sSf https://raw.githubusercontent.com/bitstack852/voryn/main/deploy/update-server/provision.sh | sudo bash
 ```
 
-### Pipeline Stages
+The script does:
+1. Installs nginx + certbot
+2. Creates `/var/www/voryn-updates/` with releases subdirectory
+3. Seeds `version.json` with v0.1.0
+4. Creates `voryn-deploy` user for CI/CD uploads
+5. Configures firewall (SSH + HTTP/HTTPS)
+6. Installs nginx config (HTTP→HTTPS redirect, caching headers)
 
-```
-Tag Push (v*)
-  │
-  ├─ Stage 1: Validate
-  │   ├─ cargo fmt --check
-  │   ├─ cargo clippy -- -D warnings
-  │   ├─ cargo test --workspace
-  │   ├─ eslint + prettier check
-  │   └─ jest tests
-  │
-  ├─ Stage 2: Build Rust (parallel)
-  │   ├─ iOS targets (aarch64-apple-ios, aarch64-apple-ios-sim)
-  │   └─ Android targets (aarch64, armv7, x86_64, i686)
-  │
-  ├─ Stage 3: Build Apps (parallel)
-  │   ├─ iOS: xcodebuild → IPA → TestFlight upload
-  │   └─ Android: Gradle assembleRelease → signed APK
-  │
-  ├─ Stage 4: Sign & Hash
-  │   ├─ Android APK signing (via Cloud KMS or encrypted keystore)
-  │   └─ SHA-256 hash generation for APK
-  │
-  ├─ Stage 5: Publish
-  │   ├─ Upload APK + hash to update server
-  │   ├─ Update version.json
-  │   ├─ Upload IPA to App Store Connect (TestFlight)
-  │   └─ Create GitHub Release with changelog
-  │
-  └─ Stage 6: Verify
-      ├─ Download published APK, verify SHA-256
-      ├─ Install on test device, verify version string
-      └─ Verify bootstrap node connectivity
+### 3.3 Configure TLS
+
+```bash
+# After DNS is configured (see section 4)
+sudo certbot --nginx -d updates.voryn.app
+
+# Verify auto-renewal
+sudo certbot renew --dry-run
 ```
 
-### GitHub Actions Workflow
+### 3.4 Configure CI/CD Access
 
-```yaml
-# .github/workflows/release.yml (to be created)
-name: Release
-on:
-  push:
-    tags: ['v*']
+```bash
+# On your local machine, generate a deploy key
+ssh-keygen -t ed25519 -f voryn-deploy-key -C "voryn-ci-deploy"
 
-jobs:
-  validate:
-    # ... lint + test (same as ci.yml)
+# Copy the public key to the update server
+ssh-copy-id -i voryn-deploy-key.pub voryn-deploy@updates.voryn.app
 
-  build-android:
-    needs: validate
-    runs-on: ubuntu-latest
-    steps:
-      - # Build Rust for Android
-      - # Gradle assembleRelease
-      - # Sign APK
-      - # Upload artifact
+# Add the PRIVATE key as a GitHub secret (see section 5)
+cat voryn-deploy-key
+# Copy this output → GitHub repo → Settings → Secrets → UPDATE_SERVER_SSH_KEY
+```
 
-  build-ios:
-    needs: validate
-    runs-on: macos-latest
-    steps:
-      - # Build Rust for iOS
-      - # xcodebuild
-      - # Upload to TestFlight
+### 3.5 Verify
 
-  publish:
-    needs: [build-android, build-ios]
-    steps:
-      - # Upload APK to update server
-      - # Update version.json
-      - # Create GitHub Release
+```bash
+curl -sf https://updates.voryn.app/version.json | jq .
+# Should return: { "latest": "0.1.0", ... }
 ```
 
 ---
 
-## 4. Versioning Strategy
+## 4. DNS & Domain Configuration
 
-**Semantic Versioning (semver):**
-- `MAJOR.MINOR.PATCH` (e.g., `0.1.0`, `0.2.0`, `1.0.0`)
-- **MAJOR:** Breaking protocol changes (requires all users to update)
-- **MINOR:** New features, backward-compatible protocol changes
-- **PATCH:** Bug fixes, security patches
+### Required DNS Records
 
-**Pre-1.0 (current):**
-- `0.x.y` — API and protocol are unstable
-- Breaking changes expected between minor versions
+| Type | Name | Value | TTL |
+|------|------|-------|-----|
+| A | boot1.voryn.app | `<Bootstrap Node 1 IP>` | 300 |
+| A | boot2.voryn.app | `<Bootstrap Node 2 IP>` | 300 |
+| A | boot3.voryn.app | `<Bootstrap Node 3 IP>` | 300 |
+| A | updates.voryn.app | `<Update Server IP>` | 300 |
+| AAAA | (same as above) | `<IPv6 if available>` | 300 |
 
-**Version 1.0.0 criteria:**
-- External security audit passed
-- Penetration test passed
-- 30-day staging period with no critical bugs
-- All Phase 7 milestones complete
+### Registrar Recommendation
 
----
-
-## 5. Release Checklist
-
-### Before Tagging
-
-- [ ] All CI checks pass on `main`
-- [ ] Changelog updated in `CHANGELOG.md`
-- [ ] Version bumped in `Cargo.toml`, `package.json`, app configs
-- [ ] Staging build tested on physical iOS + Android devices
-- [ ] No known critical or high-severity bugs
-- [ ] Security-sensitive changes reviewed by second developer
-
-### After Publishing
-
-- [ ] APK SHA-256 matches build output
-- [ ] TestFlight build available for download
-- [ ] version.json updated on update server
-- [ ] GitHub Release created with changelog
-- [ ] Bootstrap nodes verified online and responsive
-- [ ] Smoke test: fresh install → create identity → send message
+Use a privacy-respecting registrar:
+- **Njalla** — anonymous domain registration (recommended)
+- **Gandi** — WHOIS privacy included
+- **Cloudflare Registrar** — at-cost pricing
 
 ---
 
-## 6. Rollback Procedure
+## 5. CI/CD Secrets Configuration
 
-Since Voryn is decentralized, "rollback" means reverting the app to a previous version.
+Go to: GitHub repo → Settings → Secrets and variables → Actions
 
-### Android
-1. Update `version.json` to point to the previous APK
-2. Set `minimum` version to allow the old version
-3. Users will be prompted to "update" to the older version
+| Secret Name | Description | How to Get |
+|-------------|-------------|-----------|
+| `VORYN_KEYSTORE_BASE64` | Android release keystore (base64) | `base64 -w0 release.keystore` |
+| `VORYN_KEYSTORE_PASSWORD` | Keystore password | Set during keytool creation |
+| `VORYN_KEY_ALIAS` | Key alias in keystore | Set during keytool creation |
+| `VORYN_KEY_PASSWORD` | Key password | Set during keytool creation |
+| `UPDATE_SERVER_SSH_KEY` | Private SSH key for deploy user | Generated in section 3.4 |
+| `APP_STORE_CONNECT_API_KEY` | Apple API key for TestFlight | App Store Connect → Users → Keys |
 
-### iOS (TestFlight)
-1. Stop the new build's distribution in App Store Connect
-2. The previous build automatically becomes the active version
-3. Users on the bad build can reinstall from TestFlight
+### Generate the Android Keystore
 
-### Protocol Rollback
-If a protocol change causes incompatibility:
-1. Tag and release a hotfix that supports both old and new protocol
-2. Set `minimum` version to the hotfix
-3. Phase out old protocol in the next minor release
+```bash
+keytool -genkeypair \
+    -v \
+    -keystore release.keystore \
+    -alias voryn-release \
+    -keyalg RSA \
+    -keysize 4096 \
+    -validity 36500 \
+    -dname "CN=BitStack Labs, O=BitStack Labs, L=London, C=GB"
+
+# Base64 encode for GitHub secret
+base64 -w0 release.keystore > release.keystore.b64
+
+# Store release.keystore securely (password manager, HSM)
+# NEVER commit it to the repository
+```
 
 ---
 
-## 7. Monitoring
+## 6. App Build & Signing
 
-Since there are no central servers, monitoring is limited to:
+### Android (Local)
 
-### Bootstrap Node Health
-- Uptime monitoring (UptimeRobot, Hetrix, or self-hosted)
-- Ping check: can a fresh libp2p node connect and discover peers?
-- Alert on: node unreachable for > 5 minutes
+```bash
+./scripts/build-release-android.sh
+# Output: build/voryn-0.1.0-release.apk + .sha256
+```
 
-### Update Server Health
-- HTTPS endpoint monitoring
-- Alert on: `version.json` unreachable or invalid JSON
+### iOS (Local, requires macOS)
 
-### Crash Reporting (Opt-In)
-- **Not enabled by default** (privacy commitment)
-- If user opts in: anonymous crash reports via Sentry or self-hosted equivalent
-- No message content, contact data, or identity information in crash reports
-- Only: stack trace, device model, OS version, app version
+```bash
+./scripts/build-release-ios.sh
+# Output: build/voryn-0.1.0-release.ipa
+```
 
-### Network Health Metrics (Aggregated, Anonymous)
-- DHT peer count (reported by bootstrap nodes only)
-- Average peer discovery time
-- No per-user metrics collected
+### Reproducible Build (Docker)
+
+```bash
+docker build -t voryn-builder .
+docker run -v $(pwd)/build:/output voryn-builder scripts/build-release-android.sh
+sha256sum build/voryn-0.1.0-release.apk  # Compare with published hash
+```
+
+---
+
+## 7. Release Process
+
+### Standard Release
+
+```bash
+# 1. Ensure main is clean and all tests pass
+git checkout main && git pull
+cargo test --workspace && yarn lint
+
+# 2. Bump version in Cargo.toml + package.json, update CHANGELOG.md
+# 3. Commit the version bump
+git add -A && git commit -m "Release v0.2.0"
+
+# 4. Tag and push (triggers CI/CD)
+git tag v0.2.0
+git push origin main && git push origin v0.2.0
+
+# 5. CI/CD automatically builds, signs, and publishes
+# 6. Run post-deployment verification (section 8)
+```
+
+### Emergency Hotfix
+
+```bash
+git checkout -b hotfix/v0.2.1 v0.2.0
+# ... apply fix ...
+git commit -m "Fix critical security issue"
+git tag v0.2.1
+git push origin hotfix/v0.2.1 && git push origin v0.2.1
+git checkout main && git merge hotfix/v0.2.1 && git push origin main
+```
+
+---
+
+## 8. Post-Deployment Verification
+
+Run after every release:
+
+```bash
+# 1. Verify update server
+curl -sf https://updates.voryn.app/version.json | jq .latest
+# Expected: "0.2.0"
+
+# 2. Verify APK download + hash
+curl -sf -o /tmp/test.apk "https://updates.voryn.app/releases/voryn-0.2.0-release.apk"
+sha256sum /tmp/test.apk  # Compare with published hash
+
+# 3. Verify bootstrap nodes
+for node in boot1 boot2 boot3; do
+    nc -zv ${node}.voryn.app 4001 && echo "${node}: OK" || echo "${node}: FAIL"
+done
+
+# 4. Smoke test on physical device
+#    Fresh install → Create identity → Connect to network → Send message
+```
+
+---
+
+## 9. Environments
+
+| | Development | Staging | Production |
+|---|---|---|---|
+| **Branch** | feature/* | staging | main (tagged) |
+| **Bootstrap** | localhost | boot-staging.voryn.app | boot{1,2,3}.voryn.app |
+| **Update Server** | none | staging.updates.voryn.app | updates.voryn.app |
+| **Build Flag** | `--features dev` | `--features staging` | (default) |
+| **Signing** | debug keystore | debug keystore | release keystore |
+
+---
+
+## 10. Monitoring & Alerting
+
+### Setup (UptimeRobot — free tier)
+
+1. Create account at uptimerobot.com
+2. Add TCP monitors for boot{1,2,3}.voryn.app:4001 (60s interval)
+3. Add HTTPS monitor for updates.voryn.app/version.json (keyword: `"latest"`)
+4. Configure alert contacts (email + Telegram/Slack)
+
+### Alert Response
+
+| Condition | Action |
+|-----------|--------|
+| 1 bootstrap node down | Non-critical. SSH in, `systemctl restart voryn-bootstrap` |
+| All bootstrap nodes down | Critical. New users can't join. Fix immediately. |
+| Update server down | Low priority. Users can't check updates. Fix within 24h. |
+| TLS cert expiry < 14 days | Run `sudo certbot renew` on the server |
+
+---
+
+## 11. Rollback Procedures
+
+### Bad Android Release
+
+```bash
+# Point version.json back to previous version
+ssh voryn-deploy@updates.voryn.app
+echo '{"latest":"0.1.0","minimum":"0.1.0",...}' > /var/www/voryn-updates/version.json
+```
+
+### Bad iOS Release
+
+1. App Store Connect → TestFlight → Builds → Stop the bad build
+2. Previous build becomes active automatically
+
+### Corrupted Bootstrap Node
+
+```bash
+sudo systemctl stop voryn-bootstrap
+sudo rm -rf /opt/voryn/data/*       # New identity generated on restart
+sudo systemctl start voryn-bootstrap
+# Get new PeerId and update app config in next release
+```
+
+---
+
+## 12. Maintenance Runbook
+
+### Weekly
+- [ ] Check uptime dashboard for all monitors
+- [ ] Review bootstrap node logs for errors
+
+### Monthly
+- [ ] OS security updates: `apt-get update && apt-get upgrade`
+- [ ] Check disk usage: `df -h`
+- [ ] Verify TLS certs: `openssl s_client -connect updates.voryn.app:443 </dev/null 2>/dev/null | openssl x509 -noout -dates`
+
+### On Each Release
+- [ ] Run section 8 verification checklist
+- [ ] Monitor for 24h post-release
+
+### Quarterly
+- [ ] Audit SSH access logs
+- [ ] Review VPS costs
+- [ ] Update this runbook
