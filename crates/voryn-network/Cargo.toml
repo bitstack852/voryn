@@ -17,5 +17,9 @@ thiserror.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
 
+[features]
+dev = []
+staging = []
+
 [dev-dependencies]
 proptest.workspace = true

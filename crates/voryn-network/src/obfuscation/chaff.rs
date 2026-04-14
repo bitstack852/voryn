@@ -55,7 +55,7 @@ impl ChaffConfig {
 
 /// Marker in chaff messages (only detectable by the recipient who can decrypt).
 /// Chaff messages contain this magic byte sequence at the start after decryption.
-pub const CHAFF_MAGIC: &[u8; 8] = b"VORNCHAFF";
+pub const CHAFF_MAGIC: &[u8; 9] = b"VORNCHAFF";
 
 /// Check if decrypted content is chaff (should be silently dropped).
 pub fn is_chaff(decrypted: &[u8]) -> bool {
