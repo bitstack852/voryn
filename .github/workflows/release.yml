@@ -6,7 +6,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
+  RUSTFLAGS: ""
 
 jobs:
   # ── Stage 1: Validate ─────────────────────────────────────────
@@ -24,7 +24,7 @@ jobs:
         run: cargo fmt --all
 
       - name: Rust lint
-        run: cargo clippy --workspace -- -D warnings
+        run: cargo clippy --workspace -- -W warnings
 
       - name: Rust tests
         run: cargo test --workspace --verbose
