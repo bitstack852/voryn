@@ -76,8 +76,8 @@ mod tests {
         let conn = open_memory_database().unwrap();
         let peer = vec![6u8; 32];
 
-        upsert_key_material(&conn, &peer, &vec![1; 64]).unwrap();
-        upsert_key_material(&conn, &peer, &vec![2; 64]).unwrap();
+        upsert_key_material(&conn, &peer, &[1; 64]).unwrap();
+        upsert_key_material(&conn, &peer, &[2; 64]).unwrap();
 
         let retrieved = get_key_material(&conn, &peer).unwrap().unwrap();
         assert_eq!(retrieved, vec![2; 64]);
@@ -86,7 +86,7 @@ mod tests {
     #[test]
     fn test_missing_key_material() {
         let conn = open_memory_database().unwrap();
-        let result = get_key_material(&conn, &vec![99u8; 32]).unwrap();
+        let result = get_key_material(&conn, &[99u8; 32]).unwrap();
         assert!(result.is_none());
     }
 }

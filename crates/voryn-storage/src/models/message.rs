@@ -195,8 +195,8 @@ mod tests {
     fn test_update_message_status() {
         let conn = open_memory_database().unwrap();
         insert_message(
-            &conn, "msg-002", "conv-1", &vec![1u8; 32],
-            &vec![0; 64], &vec![0; 24], &vec![0; 64],
+            &conn, "msg-002", "conv-1", &[1u8; 32],
+            &[0; 64], &[0; 24], &[0; 64],
             "2026-04-14T12:00:00Z", "pending",
         ).unwrap();
 
@@ -209,13 +209,13 @@ mod tests {
     fn test_get_pending_messages() {
         let conn = open_memory_database().unwrap();
         insert_message(
-            &conn, "msg-p1", "conv-1", &vec![1u8; 32],
-            &vec![0; 64], &vec![0; 24], &vec![0; 64],
+            &conn, "msg-p1", "conv-1", &[1u8; 32],
+            &[0; 64], &[0; 24], &[0; 64],
             "2026-04-14T12:00:00Z", "pending",
         ).unwrap();
         insert_message(
-            &conn, "msg-d1", "conv-1", &vec![1u8; 32],
-            &vec![0; 64], &vec![0; 24], &vec![0; 64],
+            &conn, "msg-d1", "conv-1", &[1u8; 32],
+            &[0; 64], &[0; 24], &[0; 64],
             "2026-04-14T12:01:00Z", "delivered",
         ).unwrap();
 
@@ -228,8 +228,8 @@ mod tests {
     fn test_delete_message() {
         let conn = open_memory_database().unwrap();
         insert_message(
-            &conn, "msg-del", "conv-1", &vec![1u8; 32],
-            &vec![0; 64], &vec![0; 24], &vec![0; 64],
+            &conn, "msg-del", "conv-1", &[1u8; 32],
+            &[0; 64], &[0; 24], &[0; 64],
             "2026-04-14T12:00:00Z", "received",
         ).unwrap();
 

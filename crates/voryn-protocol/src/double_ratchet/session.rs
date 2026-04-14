@@ -323,17 +323,17 @@ mod tests {
     fn test_session_serialization() {
         init();
         let shared_secret = [0x42; 32];
-        let (bob_sk, bob_pk) = generate_dh_keypair();
+        let (_bob_sk, bob_pk) = generate_dh_keypair();
 
         let mut alice = Session::init_alice(shared_secret, bob_pk);
-        let (header, ct) = alice.encrypt(b"test");
+        let (_header, _ct) = alice.encrypt(b"test");
 
         // Serialize and deserialize
         let data = alice.serialize().unwrap();
         let mut alice_restored = Session::deserialize(&data).unwrap();
 
         // Should be able to encrypt with restored session
-        let (header2, ct2) = alice_restored.encrypt(b"after restore");
+        let (_header2, ct2) = alice_restored.encrypt(b"after restore");
         assert!(!ct2.is_empty());
     }
 
@@ -361,7 +361,7 @@ mod tests {
 
         // Even with alice_state from before, the root key has advanced
         // and old message keys are gone (forward secrecy)
-        let old_alice = Session::deserialize(&alice_state).unwrap();
+        let _old_alice = Session::deserialize(&alice_state).unwrap();
         // old_alice cannot produce the same ciphertext as current alice
     }
 }
