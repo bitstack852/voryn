@@ -1,0 +1,20 @@
+[package]
+name = "voryn-network"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "P2P networking layer for Voryn — libp2p DHT, transport, discovery"
+
+[dependencies]
+libp2p.workspace = true
+futures = "0.3"
+rand.workspace = true
+tokio.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

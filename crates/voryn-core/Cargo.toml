@@ -1,0 +1,28 @@
+[package]
+name = "voryn-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Core library and UniFFI entry point for Voryn"
+
+[dependencies]
+voryn-crypto = { path = "../voryn-crypto" }
+voryn-network = { path = "../voryn-network" }
+voryn-storage = { path = "../voryn-storage" }
+voryn-protocol = { path = "../voryn-protocol" }
+sodiumoxide.workspace = true
+rand.workspace = true
+uniffi.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+serde.workspace = true
+zeroize.workspace = true
+
+[build-dependencies]
+uniffi = { workspace = true, features = ["build"] }
+
+[dev-dependencies]
+proptest.workspace = true

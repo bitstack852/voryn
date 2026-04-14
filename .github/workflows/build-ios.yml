@@ -1,0 +1,36 @@
+name: Build iOS
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build iOS Release
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+
+      - name: Install dependencies
+        run: yarn install
+
+      - name: Build Rust for iOS
+        run: |
+          cargo build --release --target aarch64-apple-ios -p voryn-core
+          cargo build --release --target aarch64-apple-ios-sim -p voryn-core
+
+      # TODO: Add xcodebuild step once iOS project is configured
+      - name: Build React Native iOS
+        run: echo "iOS build step — requires Xcode project setup"

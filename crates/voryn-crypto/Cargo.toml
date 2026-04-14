@@ -1,0 +1,19 @@
+[package]
+name = "voryn-crypto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Cryptographic primitives for Voryn — identity, signing, encryption, key derivation"
+
+[dependencies]
+sodiumoxide.workspace = true
+libsodium-sys.workspace = true
+zeroize.workspace = true
+rand.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
