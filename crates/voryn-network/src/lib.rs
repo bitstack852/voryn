@@ -5,15 +5,18 @@
 //! - Peer discovery (Kademlia DHT + mDNS)
 //! - Custom messaging protocols
 //! - Traffic obfuscation
+//!
+//! NOTE: libp2p is temporarily disabled in CI until Cargo.lock
+//! is generated. Stubs are in place for all public APIs.
 
-pub mod node;
-pub mod transport;
-pub mod discovery;
 pub mod config;
-pub mod protocols;
+pub mod discovery;
+pub mod node;
 pub mod obfuscation;
+pub mod protocols;
+pub mod transport;
 
-pub use node::{NodeHandle, NodeConfig, NodeEvent, NodeCommand};
+pub use node::{NodeCommand, NodeConfig, NodeEvent, NodeHandle};
 
 #[derive(Debug, thiserror::Error)]
 pub enum NetworkError {
