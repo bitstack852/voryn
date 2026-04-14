@@ -1,0 +1,18 @@
+[package]
+name = "voryn-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Messaging protocols for Voryn — Double Ratchet, Shamir's Secret Sharing, group ledger"
+
+[dependencies]
+serde.workspace = true
+bincode.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+zeroize.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

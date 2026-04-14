@@ -1,0 +1,49 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/voryn-core",
+    "crates/voryn-crypto",
+    "crates/voryn-network",
+    "crates/voryn-storage",
+    "crates/voryn-protocol",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["BitStack Labs <nelson@bitstack.codes>"]
+repository = "https://github.com/bitstack852/voryn"
+
+[workspace.dependencies]
+# Crypto
+sodiumoxide = "0.2"
+libsodium-sys = "0.2"
+zeroize = { version = "1", features = ["derive"] }
+rand = "0.8"
+
+# Networking
+libp2p = { version = "0.54", features = ["tokio", "quic", "tcp", "noise", "yamux", "kad", "mdns", "identify", "macros"] }
+tokio = { version = "1", features = ["full"] }
+
+# Storage
+rusqlite = { version = "0.31", features = ["bundled-sqlcipher"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+bincode = "1"
+
+# UniFFI
+uniffi = "0.28"
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Testing
+proptest = "1"

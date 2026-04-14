@@ -1,0 +1,33 @@
+{
+  "name": "voryn",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/mobile",
+    "packages/*"
+  ],
+  "scripts": {
+    "mobile": "yarn workspace @voryn/mobile",
+    "shared": "yarn workspace @voryn/shared-types",
+    "lint": "yarn workspaces run lint",
+    "format": "prettier --write '**/*.{ts,tsx,js,json,md}'",
+    "format:check": "prettier --check '**/*.{ts,tsx,js,json,md}'",
+    "typecheck": "yarn workspaces run typecheck",
+    "test": "yarn workspaces run test",
+    "clean": "yarn workspaces run clean"
+  },
+  "devDependencies": {
+    "prettier": "^3.2.0",
+    "husky": "^9.0.0",
+    "lint-staged": "^15.2.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  }
+}
