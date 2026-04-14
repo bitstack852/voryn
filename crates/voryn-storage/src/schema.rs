@@ -4,7 +4,7 @@ use rusqlite::Connection;
 use crate::StorageError;
 
 /// Current schema version.
-pub const SCHEMA_VERSION: i32 = 1;
+pub const SCHEMA_VERSION: i32 = 2;
 
 /// Run all pending migrations to bring the database up to the current schema.
 pub fn run_migrations(conn: &Connection) -> Result<(), StorageError> {
@@ -12,6 +12,9 @@ pub fn run_migrations(conn: &Connection) -> Result<(), StorageError> {
 
     if current_version < 1 {
         migrate_v1(conn)?;
+    }
+    if current_version < 2 {
+        migrate_v2(conn)?;
     }
 
     Ok(())
@@ -93,6 +96,44 @@ fn migrate_v1(conn: &Connection) -> Result<(), StorageError> {
 
     set_schema_version(conn, 1)?;
     tracing::info!("Database migrated to schema v1");
+    Ok(())
+}
+
+/// Schema v2: Outbound message queue + Double Ratchet session storage.
+fn migrate_v2(conn: &Connection) -> Result<(), StorageError> {
+    conn.execute_batch(
+        "
+        -- Outbound message queue for reliable delivery
+        CREATE TABLE IF NOT EXISTS outbound_queue (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id TEXT NOT NULL UNIQUE,
+            recipient_pubkey BLOB NOT NULL,
+            payload BLOB NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            next_retry_at TEXT NOT NULL DEFAULT (datetime('now')),
+            status TEXT NOT NULL DEFAULT 'pending'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_queue_status
+            ON outbound_queue(status, next_retry_at);
+
+        -- Passcode configuration (stores wrapped key, params)
+        CREATE TABLE IF NOT EXISTS passcode_config (
+            id INTEGER PRIMARY KEY CHECK (id = 1),
+            wrapped_key BLOB NOT NULL,
+            nonce BLOB NOT NULL,
+            salt BLOB NOT NULL,
+            memory_kib INTEGER NOT NULL,
+            iterations INTEGER NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        ",
+    )
+    .map_err(|e| StorageError::MigrationError(e.to_string()))?;
+
+    set_schema_version(conn, 2)?;
+    tracing::info!("Database migrated to schema v2");
     Ok(())
 }
 

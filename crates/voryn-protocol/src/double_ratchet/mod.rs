@@ -1,10 +1,16 @@
 //! Double Ratchet Algorithm — forward-secret messaging protocol.
-//! Full implementation in Phase 2, Milestone 2.1.
+//!
+//! Implements the Signal Double Ratchet specification for forward-secret
+//! one-to-one messaging. Each message uses a unique encryption key;
+//! compromising one key does not reveal past or future messages.
 //!
 //! References:
-//! - Signal Double Ratchet specification
 //! - https://signal.org/docs/specifications/doubleratchet/
 
 pub mod chain;
 pub mod session;
 pub mod header;
+
+pub use chain::{Chain, ChainKey, MessageKey};
+pub use header::Header;
+pub use session::Session;

@@ -9,6 +9,7 @@ pub mod signing;
 pub mod encryption;
 pub mod dh;
 pub mod kdf;
+pub mod passcode;
 pub mod secure_memory;
 
 /// Initialize the sodiumoxide library. Must be called before any crypto operations.

@@ -8,6 +8,7 @@ pub mod database;
 pub mod schema;
 pub mod models;
 pub mod migrations;
+pub mod queue;
 
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
