@@ -79,7 +79,11 @@ pub fn wrap_key(
 
     Ok(WrappedKey {
         ciphertext,
-        nonce: *nonce.as_ref(),
+        nonce: {
+            let mut arr = [0u8; 24];
+            arr.copy_from_slice(nonce.as_ref());
+            arr
+        },
         params: params.clone(),
     })
 }
