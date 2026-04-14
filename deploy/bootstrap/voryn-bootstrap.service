@@ -1,0 +1,51 @@
+[Unit]
+Description=Voryn DHT Bootstrap Node
+Documentation=https://github.com/bitstack852/voryn
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=voryn
+Group=voryn
+
+# Working directory for identity key storage
+WorkingDirectory=/opt/voryn
+
+# Main process
+ExecStart=/opt/voryn/bin/voryn-bootstrap \
+    --listen /ip4/0.0.0.0/tcp/4001 \
+    --identity-file /opt/voryn/data/node-identity.key \
+    --log-level info
+
+# Restart policy
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=10
+
+# Security hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/voryn/data
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+MemoryDenyWriteExecute=yes
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=256M
+CPUQuota=50%
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=voryn-bootstrap
+
+[Install]
+WantedBy=multi-user.target

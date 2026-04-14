@@ -1,0 +1,61 @@
+version: "3.8"
+
+# Voryn Infrastructure — Coolify Docker Compose
+# Deploy as a Docker Compose resource in Coolify v4
+#
+# Services:
+#   1. update-server — nginx serving version.json + APK downloads
+#   2. bootstrap — DHT peer discovery node (raw TCP, bypasses Traefik)
+
+services:
+  # ── Update Server ────────────────────────────────────────────────
+  # Serves version.json and signed APK releases
+  # Coolify handles TLS via its built-in proxy (Traefik/Caddy)
+  #
+  # Domain: updates.voryn.bitstack.website
+  update-server:
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - update-data:/usr/share/nginx/html:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    labels:
+      - "coolify.managed=true"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/version.json"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ── Bootstrap Node ──────────────────────────────────────────────
+  # DHT peer discovery node — needs raw TCP port 4001 exposed directly
+  # This BYPASSES Coolify's proxy since libp2p is not HTTP
+  #
+  # Domain: boot1.voryn.bitstack.website (DNS A record, no proxy)
+  bootstrap:
+    build:
+      context: ../..
+      dockerfile: deploy/coolify/Dockerfile.bootstrap
+    restart: unless-stopped
+    ports:
+      - "4001:4001/tcp"
+      - "4001:4001/udp"
+    volumes:
+      - bootstrap-data:/data
+    environment:
+      - VORYN_LISTEN_ADDR=/ip4/0.0.0.0/tcp/4001
+      - VORYN_IDENTITY_FILE=/data/node-identity.key
+      - RUST_LOG=info
+    labels:
+      - "coolify.managed=true"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "4001"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  update-data:
+    driver: local
+  bootstrap-data:
+    driver: local
