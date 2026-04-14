@@ -19,19 +19,11 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'yarn'
-
       - name: Rust lint
         run: cargo fmt --all -- --check && cargo clippy --workspace -- -D warnings
 
       - name: Rust tests
         run: cargo test --workspace --verbose
-
-      - name: JS lint
-        run: yarn install && yarn lint
 
   # ── Stage 2+3: Build Android ──────────────────────────────────
   build-android:
@@ -53,14 +45,6 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'yarn'
-
-      - name: Install dependencies
-        run: yarn install
 
       - name: Build Rust for Android
         run: |
@@ -123,14 +107,6 @@ jobs:
         with:
           targets: aarch64-apple-ios,aarch64-apple-ios-sim
       - uses: Swatinem/rust-cache@v2
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'yarn'
-
-      - name: Install dependencies
-        run: yarn install
 
       - name: Build Rust for iOS
         run: |
