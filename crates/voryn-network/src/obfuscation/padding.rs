@@ -47,7 +47,7 @@ fn select_bucket(data_len: usize) -> usize {
         }
     }
     // For very large messages, round up to nearest 64KB multiple
-    ((data_len + 65535) / 65536) * 65536
+    data_len.div_ceil(65536) * 65536
 }
 
 #[cfg(test)]

@@ -82,7 +82,7 @@ impl Default for NodeConfig {
 /// Start a Voryn network node on a background Tokio task.
 /// Stub implementation — full libp2p integration pending.
 pub async fn start_node(config: NodeConfig) -> Result<NodeHandle, NetworkError> {
-    let peer_id = format!("stub-peer-{}", hex::encode(&config.keypair_bytes.get(..8).unwrap_or(&[0; 8])));
+    let peer_id = format!("stub-peer-{}", hex::encode(config.keypair_bytes.get(..8).unwrap_or(&[0; 8])));
     info!("Voryn network node starting (stub) with PeerId: {}", peer_id);
 
     let (command_tx, _command_rx) = mpsc::channel::<NodeCommand>(256);
