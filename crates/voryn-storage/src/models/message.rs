@@ -19,6 +19,7 @@ pub struct StoredMessage {
 }
 
 /// Insert a new message (incoming or outgoing).
+#[allow(clippy::too_many_arguments)]
 pub fn insert_message(
     conn: &Connection,
     message_id: &str,

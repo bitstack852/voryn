@@ -6,7 +6,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::message::EncryptedMessage;
-use crate::ProtocolError;
 
 /// Parameters needed to construct an encrypted message.
 /// In Phase 1, the symmetric key is derived from DH(our_sk, their_pk).

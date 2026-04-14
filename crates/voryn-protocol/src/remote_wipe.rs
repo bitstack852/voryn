@@ -64,6 +64,12 @@ pub struct NonceTracker {
     seen_nonces: std::collections::HashSet<Vec<u8>>,
 }
 
+impl Default for NonceTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl NonceTracker {
     pub fn new() -> Self {
         Self {

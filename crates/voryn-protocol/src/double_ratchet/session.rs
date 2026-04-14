@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::chain::{Chain, ChainKey, MessageKey};
+use super::chain::{Chain, ChainKey};
 use super::header::Header;
 
 /// Maximum number of skipped message keys to store (prevents memory exhaustion).
@@ -112,16 +112,33 @@ impl Session {
         if self.dh_remote_public.as_ref() != Some(&header.dh_public_key) {
             // Skip any remaining message keys in the current receiving chain
             if let Some(ref mut recv_chain) = self.receiving_chain {
-                self.skip_message_keys(recv_chain, header.previous_chain_length)?;
+                let dh_pub = self.dh_remote_public.unwrap_or([0; 32]);
+                if recv_chain.index() + MAX_SKIP < header.previous_chain_length {
+                    return Err("Too many skipped messages".into());
+                }
+                while recv_chain.index() < header.previous_chain_length {
+                    let mk = recv_chain.next_message_key();
+                    self.skipped_keys.insert((dh_pub, recv_chain.index() - 1), mk.as_bytes().to_vec());
+                }
             }
             self.dh_ratchet_step(&header.dh_public_key);
         }
 
         // Skip to the correct message number in the receiving chain
-        let recv_chain = self.receiving_chain.as_mut()
-            .ok_or("Receiving chain not initialized")?;
-        self.skip_message_keys_in(recv_chain, header.message_number)?;
+        {
+            let dh_pub = self.dh_remote_public.unwrap_or([0; 32]);
+            let recv_chain = self.receiving_chain.as_mut()
+                .ok_or("Receiving chain not initialized")?;
+            if recv_chain.index() + MAX_SKIP < header.message_number {
+                return Err("Too many skipped messages".into());
+            }
+            while recv_chain.index() < header.message_number {
+                let mk = recv_chain.next_message_key();
+                self.skipped_keys.insert((dh_pub, recv_chain.index() - 1), mk.as_bytes().to_vec());
+            }
+        }
 
+        let recv_chain = self.receiving_chain.as_mut().unwrap();
         let mk = recv_chain.next_message_key();
         decrypt_with_mk(ciphertext, mk.as_bytes(), &header.to_bytes())
     }
@@ -150,31 +167,6 @@ impl Session {
         let (new_root_key, send_chain_key) = kdf_rk(&self.root_key, &dh_output);
         self.root_key = new_root_key;
         self.sending_chain = Some(Chain::new(ChainKey::new(send_chain_key)));
-    }
-
-    /// Skip message keys in a chain up to a target index, storing them for later.
-    fn skip_message_keys(&mut self, chain: &mut Chain, until: u32) -> Result<(), String> {
-        if chain.index() + MAX_SKIP < until {
-            return Err("Too many skipped messages".into());
-        }
-        let dh_pub = self.dh_remote_public.unwrap_or([0; 32]);
-        while chain.index() < until {
-            let mk = chain.next_message_key();
-            self.skipped_keys.insert((dh_pub, chain.index() - 1), mk.as_bytes().to_vec());
-        }
-        Ok(())
-    }
-
-    fn skip_message_keys_in(&mut self, chain: &mut Chain, until: u32) -> Result<(), String> {
-        if chain.index() + MAX_SKIP < until {
-            return Err("Too many skipped messages".into());
-        }
-        let dh_pub = self.dh_remote_public.unwrap_or([0; 32]);
-        while chain.index() < until {
-            let mk = chain.next_message_key();
-            self.skipped_keys.insert((dh_pub, chain.index() - 1), mk.as_bytes().to_vec());
-        }
-        Ok(())
     }
 
     /// Serialize session state for storage.

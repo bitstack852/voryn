@@ -41,10 +41,10 @@ pub fn split_secret(secret: &[u8], t: u8, n: u8) -> Result<Vec<Share>, String> {
         .collect();
 
     // For each byte of the secret, create a random polynomial of degree t-1
-    for byte_idx in 0..secret.len() {
+    for (byte_idx, &secret_byte) in secret.iter().enumerate() {
         // Coefficients: a[0] = secret byte, a[1..t-1] = random
         let mut coefficients = vec![0u8; t as usize];
-        coefficients[0] = secret[byte_idx];
+        coefficients[0] = secret_byte;
         for coeff in coefficients.iter_mut().skip(1) {
             *coeff = rng.gen();
         }
@@ -72,8 +72,8 @@ pub fn reconstruct_secret(shares: &[Share]) -> Result<Vec<u8>, String> {
     let mut secret = vec![0u8; secret_len];
 
     // Lagrange interpolation in GF(256) for each byte
-    for byte_idx in 0..secret_len {
-        secret[byte_idx] = lagrange_interpolate(shares, byte_idx);
+    for (byte_idx, byte) in secret.iter_mut().enumerate() {
+        *byte = lagrange_interpolate(shares, byte_idx);
     }
 
     Ok(secret)

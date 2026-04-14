@@ -25,7 +25,7 @@ impl Default for DuressConfig {
 
 impl DuressConfig {
     pub fn is_duress_passcode(&self, passcode_hash: &[u8]) -> bool {
-        self.enabled && self.duress_passcode_hash.as_ref().map_or(false, |h| h == passcode_hash)
+        self.enabled && self.duress_passcode_hash.as_ref().is_some_and(|h| h == passcode_hash)
     }
 }
 
