@@ -9,10 +9,11 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useRoute } from '@react-navigation/native';
+import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 
-type Props = NativeStackScreenProps<RootStackParamList, 'Chat'>;
+type ChatRoute = RouteProp<RootStackParamList, 'Chat'>;
 
 interface ChatMessage {
   id: string;
@@ -22,15 +23,14 @@ interface ChatMessage {
   status: 'pending' | 'sent' | 'delivered';
 }
 
-export const ChatScreen: React.FC<Props> = ({ route }) => {
+export const ChatScreen: React.FC = () => {
+  const route = useRoute<ChatRoute>();
   const [messageText, setMessageText] = useState('');
-  // TODO Phase 1: Load messages from SQLCipher, subscribe to incoming via network
   const [messages] = useState<ChatMessage[]>([]);
-  const { contactPubkeyHex: _contactPubkeyHex } = route.params;
+  const _contactPubkeyHex = route.params.contactPubkeyHex;
 
   const handleSend = () => {
     if (!messageText.trim()) return;
-    // TODO Phase 1: Encrypt and send via Rust bridge
     setMessageText('');
   };
 
@@ -83,14 +83,8 @@ export const ChatScreen: React.FC<Props> = ({ route }) => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0D0D0D',
-  },
-  messageList: {
-    padding: 16,
-    flexGrow: 1,
-  },
+  container: { flex: 1, backgroundColor: '#0D0D0D' },
+  messageList: { padding: 16, flexGrow: 1 },
   messageBubble: {
     maxWidth: '75%',
     paddingVertical: 10,
@@ -108,21 +102,9 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     borderBottomLeftRadius: 4,
   },
-  messageText: {
-    fontSize: 15,
-    color: '#FFFFFF',
-    lineHeight: 20,
-  },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
-  },
-  emptyText: {
-    fontSize: 13,
-    color: '#555555',
-  },
+  messageText: { fontSize: 15, color: '#FFFFFF', lineHeight: 20 },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 40 },
+  emptyText: { fontSize: 13, color: '#555555' },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
@@ -141,14 +123,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     maxHeight: 120,
   },
-  sendButton: {
-    marginLeft: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-  },
-  sendButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#4A9EFF',
-  },
+  sendButton: { marginLeft: 8, paddingVertical: 10, paddingHorizontal: 16 },
+  sendButtonText: { fontSize: 15, fontWeight: '600', color: '#4A9EFF' },
 });

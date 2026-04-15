@@ -1,20 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ActivityIndicator,
+} from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
 
-type Props = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
-};
+type Nav = NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
 
-export const OnboardingScreen: React.FC<Props> = ({ navigation }) => {
+export const OnboardingScreen: React.FC = () => {
+  const navigation = useNavigation<Nav>();
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
   const [bridgeStatus, setBridgeStatus] = useState<string>('');
 
   useEffect(() => {
-    // Check if identity already exists
     const checkExisting = async () => {
       try {
         const existing = await VorynBridge.loadIdentity();
@@ -22,7 +27,6 @@ export const OnboardingScreen: React.FC<Props> = ({ navigation }) => {
           navigation.replace('Contacts');
           return;
         }
-        // Test bridge
         const hello = await VorynBridge.helloFromRust();
         setBridgeStatus(hello);
       } catch {
@@ -36,9 +40,7 @@ export const OnboardingScreen: React.FC<Props> = ({ navigation }) => {
   const handleCreateIdentity = async () => {
     setIsCreating(true);
     try {
-      const identity = await VorynBridge.generateIdentity();
-      // TODO: Show public key confirmation screen
-      console.log('Identity created:', identity.publicKeyHex.slice(0, 16) + '...');
+      await VorynBridge.generateIdentity();
       navigation.replace('Contacts');
     } catch (err) {
       console.error('Failed to create identity:', err);
@@ -77,12 +79,7 @@ export const OnboardingScreen: React.FC<Props> = ({ navigation }) => {
         )}
       </TouchableOpacity>
 
-      <TouchableOpacity
-        style={[styles.button, styles.secondaryButton]}
-        onPress={() => {
-          // TODO Phase 5: Invite token redemption
-        }}
-      >
+      <TouchableOpacity style={[styles.button, styles.secondaryButton]}>
         <Text style={[styles.buttonText, styles.secondaryButtonText]}>
           I Have an Invite
         </Text>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -6,14 +6,12 @@ import {
   FlatList,
   TouchableOpacity,
 } from 'react-native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
-import { useFocusEffect } from '@react-navigation/native';
 
-type Props = {
-  navigation: NativeStackNavigationProp<RootStackParamList, 'Contacts'>;
-};
+type Nav = NativeStackNavigationProp<RootStackParamList, 'Contacts'>;
 
 interface ContactItem {
   publicKeyHex: string;
@@ -22,7 +20,8 @@ interface ContactItem {
   isVerified: boolean;
 }
 
-export const ContactsScreen: React.FC<Props> = ({ navigation }) => {
+export const ContactsScreen: React.FC = () => {
+  const navigation = useNavigation<Nav>();
   const [contacts, setContacts] = useState<ContactItem[]>([]);
 
   const loadContacts = useCallback(async () => {
@@ -30,7 +29,6 @@ export const ContactsScreen: React.FC<Props> = ({ navigation }) => {
     setContacts(result);
   }, []);
 
-  // Reload contacts when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       loadContacts();
@@ -101,25 +99,10 @@ export const ContactsScreen: React.FC<Props> = ({ navigation }) => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0D0D0D',
-  },
-  emptyState: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#FFFFFF',
-  },
-  emptySubtitle: {
-    fontSize: 14,
-    color: '#888888',
-    marginTop: 8,
-  },
+  container: { flex: 1, backgroundColor: '#0D0D0D' },
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  emptyTitle: { fontSize: 20, fontWeight: '600', color: '#FFFFFF' },
+  emptySubtitle: { fontSize: 14, color: '#888888', marginTop: 8 },
   addButton: {
     marginTop: 24,
     backgroundColor: '#FFFFFF',
@@ -127,11 +110,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     borderRadius: 8,
   },
-  addButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#0D0D0D',
-  },
+  addButtonText: { fontSize: 15, fontWeight: '600', color: '#0D0D0D' },
   contactRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -141,25 +120,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#1A1A1A',
   },
-  contactInfo: {
-    flex: 1,
-  },
-  contactName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#FFFFFF',
-  },
-  contactKey: {
-    fontSize: 12,
-    color: '#555555',
-    fontFamily: 'monospace',
-    marginTop: 4,
-  },
-  verifiedBadge: {
-    fontSize: 11,
-    color: '#34C759',
-    fontWeight: '600',
-  },
+  contactInfo: { flex: 1 },
+  contactName: { fontSize: 16, fontWeight: '500', color: '#FFFFFF' },
+  contactKey: { fontSize: 12, color: '#555555', fontFamily: 'monospace', marginTop: 4 },
+  verifiedBadge: { fontSize: 11, color: '#34C759', fontWeight: '600' },
   floatingAdd: {
     position: 'absolute',
     right: 20,
@@ -170,26 +134,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
   },
-  floatingAddText: {
-    fontSize: 28,
-    fontWeight: '300',
-    color: '#0D0D0D',
-    marginTop: -2,
-  },
+  floatingAddText: { fontSize: 28, fontWeight: '300', color: '#0D0D0D', marginTop: -2 },
   settingsButton: {
     padding: 16,
     alignItems: 'center',
     borderTopWidth: 1,
     borderTopColor: '#1A1A1A',
   },
-  settingsButtonText: {
-    fontSize: 14,
-    color: '#888888',
-  },
+  settingsButtonText: { fontSize: 14, color: '#888888' },
 });
