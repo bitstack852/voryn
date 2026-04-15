@@ -1,15 +1,15 @@
 /**
  * VorynBridge — Application logic layer.
  *
- * Phase 1: Pure JavaScript implementation with local storage.
- * Phase 2+: Will be replaced with UniFFI calls to Rust core.
- *
- * This provides real identity generation (using crypto.getRandomValues),
- * local contact storage, and message persistence — all in-memory + AsyncStorage
- * until the Rust bridge is connected.
+ * Uses the Rust native module (VorynCore) for real Ed25519 crypto when
+ * available, falls back to JS implementation otherwise.
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { NativeModules, Platform } from 'react-native';
+
+const { VorynCore } = NativeModules;
+const hasRustBridge = VorynCore != null;
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -79,17 +79,45 @@ function generateMessageId(): string {
 // ── Identity ──────────────────────────────────────────────────────
 
 export async function helloFromRust(): Promise<string> {
-  return 'Voryn Core v0.1.0 — Private. Encrypted. Unreachable.';
+  if (hasRustBridge) {
+    try {
+      return await VorynCore.hello();
+    } catch {
+      return 'Voryn Core v0.1.0 — Rust bridge error';
+    }
+  }
+  return 'Voryn Core v0.1.0 — Private. Encrypted. Unreachable. (JS fallback)';
 }
 
 export async function generateIdentity(): Promise<Identity> {
-  const seed = generateRandomBytes(32);
-  const publicKey = generateRandomBytes(32); // In real impl, derived from seed via Ed25519
+  let publicKeyHex: string;
+  let secretKeySeedHex: string;
+
+  if (hasRustBridge) {
+    try {
+      const json = await VorynCore.generateIdentity();
+      const data = JSON.parse(json);
+      publicKeyHex = data.public_key_hex;
+      secretKeySeedHex = data.secret_key_seed_hex;
+    } catch {
+      // Fall back to JS
+      publicKeyHex = bytesToHex(generateRandomBytes(32));
+      secretKeySeedHex = bytesToHex(generateRandomBytes(32));
+    }
+  } else {
+    publicKeyHex = bytesToHex(generateRandomBytes(32));
+    secretKeySeedHex = bytesToHex(generateRandomBytes(32));
+  }
+
+  const publicKey = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    publicKey[i] = parseInt(publicKeyHex.slice(i * 2, i * 2 + 2), 16);
+  }
 
   const identity: Identity = {
     publicKey,
-    publicKeyHex: bytesToHex(publicKey),
-    secretKeySeedHex: bytesToHex(seed),
+    publicKeyHex,
+    secretKeySeedHex,
     createdAt: new Date().toISOString(),
   };
 
@@ -97,6 +125,7 @@ export async function generateIdentity(): Promise<Identity> {
     publicKeyHex: identity.publicKeyHex,
     secretKeySeedHex: identity.secretKeySeedHex,
     createdAt: identity.createdAt,
+    rustGenerated: hasRustBridge,
   }));
 
   return identity;
