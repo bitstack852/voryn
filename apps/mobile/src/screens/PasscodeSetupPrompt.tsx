@@ -63,6 +63,7 @@ export const PasscodeSetupPrompt: React.FC = () => {
         secureTextEntry
         autoFocus
         maxLength={32}
+        keyboardType="number-pad"
         onSubmitEditing={step === 'create' ? handleCreate : handleConfirm}
       />
 

@@ -180,6 +180,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     borderTopWidth: 1,
     borderTopColor: '#1A1A1A',
+    paddingBottom: 34,
   },
   bottomButton: { flex: 1, paddingVertical: 14, alignItems: 'center' },
   bottomButtonText: { fontSize: 13, color: '#888888' },

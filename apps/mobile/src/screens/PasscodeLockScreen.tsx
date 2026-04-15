@@ -68,6 +68,7 @@ export const PasscodeLockScreen: React.FC = () => {
         secureTextEntry
         autoFocus
         maxLength={32}
+        keyboardType="number-pad"
       />
 
       {error && <Text style={styles.errorText}>{error}</Text>}
