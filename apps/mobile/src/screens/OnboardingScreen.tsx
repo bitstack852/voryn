@@ -35,7 +35,7 @@ export const OnboardingScreen: React.FC = () => {
     setIsCreating(true);
     try {
       await VorynBridge.generateIdentity();
-      navigation.replace('Contacts');
+      navigation.replace('PasscodeSetup');
     } catch (err) {
       console.error('Failed to create identity:', err);
       setIsCreating(false);

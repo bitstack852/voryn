@@ -290,6 +290,81 @@ All Rust code compiles clean (`cargo check --workspace` passes).
 
 ---
 
+## Latest Session Changes (2026-04-15)
+
+### New Code Written
+
+**UniFFI Bridge Layer (`crates/voryn-core/src/bridge.rs`):**
+- `VorynIdentity` and `EncryptedData` structs for cross-language data
+- `generate_identity()` — real Ed25519 keypair generation via sodiumoxide
+- `sign_message()` / `verify_signature()` — Ed25519 signing
+- `encrypt_for_peer()` / `decrypt_from_peer()` — full DH + XSalsa20-Poly1305 pipeline
+- `derive_passcode_key()` — Argon2id key derivation
+- `compute_safety_number()` — deterministic safety number from two public keys
+- Unit tests for all bridge functions (identity gen, sign/verify, encrypt/decrypt roundtrip)
+
+**UniFFI Interface Definition (`crates/voryn-core/voryn-core.udl`):**
+- Complete UDL defining all functions callable from React Native
+- Types: `VorynIdentity`, `EncryptedData`
+
+**Passcode Lock System:**
+- `PasscodeService.ts` — set/verify/remove passcode, attempt tracking (max 10), auto-wipe on limit
+- `PasscodeLockScreen.tsx` — enter passcode to unlock, shows remaining attempts, wipes data at limit
+- `PasscodeSetupPrompt.tsx` — create + confirm passcode after identity creation, skip option
+- Navigation flow: Onboarding → PasscodeSetup → Contacts, with PasscodeLock on app reopen
+- Settings: toggle passcode on/off
+
+**Network Service (`NetworkService.ts`):**
+- Bootstrap node connection verification (via update server reachability check)
+- Peer registry tracking
+- Message routing preparation (stores locally, ready for libp2p swap)
+- Bootstrap node info display
+
+**Debug Screen Updates:**
+- Real bootstrap connection testing (connects to boot1.voryn.bitstack.website)
+- Passcode status checking
+- Network status display
+
+### What You Need To Test
+
+After pulling and rebuilding on your Mac, test these flows:
+
+1. **Passcode Setup Flow:**
+   - Delete the app / clear data
+   - Open app → Create Identity → should prompt for passcode setup
+   - Set a passcode (or skip)
+   - Kill the app and reopen → should ask for passcode (if set)
+   - Enter wrong passcode 10 times → should wipe all data
+
+2. **Passcode in Settings:**
+   - Go to Settings → "Set Passcode Lock" (if not set)
+   - Go to Settings → "Remove Passcode Lock" (if set)
+
+3. **Network Connection (Debug):**
+   - Go to Settings → Debug Console
+   - Tap "Test Bootstrap Connection"
+   - Should show "Network status: connected" if internet is available
+
+4. **Rebuild Commands (on Mac):**
+   ```bash
+   cd ~/Documents/GitHub/voryn
+   git pull origin claude/create-dev-plan-zBkvL
+   rm -rf node_modules yarn.lock
+   yarn install
+   cd apps/mobile
+   mkdir -p node_modules
+   ln -sf /Users/nstorres/Documents/GitHub/voryn/node_modules/react-native node_modules/react-native
+   ln -sf /Users/nstorres/Documents/GitHub/voryn/node_modules/@react-native node_modules/@react-native
+   ln -sf /Users/nstorres/Documents/GitHub/voryn/node_modules/@react-native-async-storage node_modules/@react-native-async-storage
+   # For iOS: Cmd+R in Xcode
+   # For Android:
+   export JAVA_HOME=/opt/homebrew/opt/openjdk@17
+   export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
+   cd android && ./gradlew assembleRelease
+   ```
+
+---
+
 ## Development Environment
 
 ### Required Tools

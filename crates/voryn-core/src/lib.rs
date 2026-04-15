@@ -4,6 +4,7 @@
 //! and exposes them to React Native via UniFFI-generated bindings.
 
 pub mod auth;
+pub mod bridge;
 pub mod keystore;
 pub mod messaging;
 pub mod wipe;

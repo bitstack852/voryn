@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import * as VorynBridge from '../services/VorynBridge';
+import * as NetworkService from '../services/NetworkService';
+import * as PasscodeService from '../services/PasscodeService';
 
 export const DebugScreen: React.FC = () => {
   const navigation = useNavigation();
@@ -50,12 +52,23 @@ export const DebugScreen: React.FC = () => {
   const handleTestBootstrap = async () => {
     addLog('Testing bootstrap connection...');
     try {
-      // Simulate bootstrap connection test
-      addLog('Connecting to boot1.voryn.bitstack.website:4001...');
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      addLog('Bootstrap: Connection test complete (stub)');
+      const info = NetworkService.getBootstrapInfo();
+      addLog(`Bootstrap: ${info.host}:${info.port}`);
+      await NetworkService.connect();
+      const status = NetworkService.getStatus();
+      const peers = NetworkService.getPeerCount();
+      addLog(`Network status: ${status}, peers: ${peers}`);
     } catch (e) {
       addLog(`Bootstrap error: ${e}`);
+    }
+  };
+
+  const handleTestPasscode = async () => {
+    const has = await PasscodeService.hasPasscode();
+    addLog(`Passcode set: ${has}`);
+    if (has) {
+      const remaining = await PasscodeService.getRemainingAttempts();
+      addLog(`Remaining attempts: ${remaining}`);
     }
   };
 
@@ -132,6 +145,9 @@ export const DebugScreen: React.FC = () => {
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={handleSendTestMessage}>
           <Text style={styles.actionButtonText}>Send Test Message</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={handleTestPasscode}>
+          <Text style={styles.actionButtonText}>Check Passcode Status</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.dangerButton} onPress={handleClearAll}>
           <Text style={styles.dangerButtonText}>Clear All Data</Text>

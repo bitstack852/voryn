@@ -1,0 +1,35 @@
+namespace voryn_core {
+    // ── Bridge Test ─────────────────────────────────────────────
+    string hello_from_rust();
+
+    // ── Identity ────────────────────────────────────────────────
+    VorynIdentity generate_identity();
+    bytes get_public_key(VorynIdentity identity);
+    string get_public_key_hex(VorynIdentity identity);
+
+    // ── Crypto ──────────────────────────────────────────────────
+    bytes sign_message(bytes message, bytes secret_key);
+    boolean verify_signature(bytes message, bytes signature, bytes public_key);
+    EncryptedData encrypt_for_peer(bytes plaintext, bytes our_secret_key, bytes their_public_key);
+    bytes decrypt_from_peer(EncryptedData data, bytes our_secret_key, bytes their_public_key);
+
+    // ── Key Derivation ──────────────────────────────────────────
+    bytes derive_passcode_key(string passcode, bytes salt, u32 memory_kib, u32 iterations);
+
+    // ── Safety Numbers ──────────────────────────────────────────
+    string compute_safety_number(bytes our_public_key, bytes their_public_key);
+};
+
+// ── Data Types ──────────────────────────────────────────────────
+
+dictionary VorynIdentity {
+    bytes public_key;
+    string public_key_hex;
+    bytes secret_key_seed;
+};
+
+dictionary EncryptedData {
+    bytes nonce;
+    bytes ciphertext;
+    bytes signature;
+};

@@ -4,6 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
+import * as PasscodeService from '../services/PasscodeService';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Settings'>;
 
@@ -12,6 +13,7 @@ export const SettingsScreen: React.FC = () => {
   const [publicKeyHex, setPublicKeyHex] = useState<string>('Loading...');
   const [createdAt, setCreatedAt] = useState<string>('');
   const [contactCount, setContactCount] = useState<number>(0);
+  const [hasPasscode, setHasPasscode] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -24,6 +26,8 @@ export const SettingsScreen: React.FC = () => {
       }
       const contacts = await VorynBridge.getContacts();
       setContactCount(contacts.length);
+      const pc = await PasscodeService.hasPasscode();
+      setHasPasscode(pc);
     };
     load();
   }, []);
@@ -85,6 +89,19 @@ export const SettingsScreen: React.FC = () => {
       </View>
 
       <View style={styles.section}>
+        {!hasPasscode ? (
+          <TouchableOpacity style={styles.linkButton} onPress={() => navigation.navigate('PasscodeSetup')}>
+            <Text style={styles.linkButtonText}>Set Passcode Lock</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.linkButton} onPress={async () => {
+            await PasscodeService.removePasscode();
+            setHasPasscode(false);
+            Alert.alert('Passcode Removed', 'Passcode lock has been disabled.');
+          }}>
+            <Text style={styles.linkButtonText}>Remove Passcode Lock</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity style={styles.linkButton} onPress={() => navigation.navigate('ShareKey')}>
           <Text style={styles.linkButtonText}>Share My Public Key</Text>
         </TouchableOpacity>
