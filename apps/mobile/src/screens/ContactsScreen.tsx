@@ -13,16 +13,9 @@ import * as VorynBridge from '../services/VorynBridge';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Contacts'>;
 
-interface ContactItem {
-  publicKeyHex: string;
-  displayName: string | null;
-  lastSeen: string | null;
-  isVerified: boolean;
-}
-
 export const ContactsScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
-  const [contacts, setContacts] = useState<ContactItem[]>([]);
+  const [contacts, setContacts] = useState<VorynBridge.Contact[]>([]);
 
   const loadContacts = useCallback(async () => {
     const result = await VorynBridge.getContacts();
@@ -39,15 +32,24 @@ export const ContactsScreen: React.FC = () => {
     <View style={styles.container}>
       {contacts.length === 0 ? (
         <View style={styles.emptyState}>
+          <Text style={styles.emptyIcon}>🔐</Text>
           <Text style={styles.emptyTitle}>No Contacts Yet</Text>
           <Text style={styles.emptySubtitle}>
-            Add a contact by sharing public keys
+            Share your public key with someone to get started
           </Text>
+
           <TouchableOpacity
-            style={styles.addButton}
+            style={styles.primaryButton}
+            onPress={() => navigation.navigate('ShareKey')}
+          >
+            <Text style={styles.primaryButtonText}>Share My Key</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.secondaryButton}
             onPress={() => navigation.navigate('AddContact')}
           >
-            <Text style={styles.addButtonText}>Add Contact</Text>
+            <Text style={styles.secondaryButtonText}>Add Contact</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -64,7 +66,17 @@ export const ContactsScreen: React.FC = () => {
                     displayName: item.displayName ?? undefined,
                   })
                 }
+                onLongPress={() =>
+                  navigation.navigate('ContactDetail', {
+                    contactPubkeyHex: item.publicKeyHex,
+                  })
+                }
               >
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>
+                    {(item.displayName || '?')[0].toUpperCase()}
+                  </Text>
+                </View>
                 <View style={styles.contactInfo}>
                   <Text style={styles.contactName}>
                     {item.displayName ?? 'Unknown'}
@@ -74,73 +86,103 @@ export const ContactsScreen: React.FC = () => {
                   </Text>
                 </View>
                 {item.isVerified && (
-                  <Text style={styles.verifiedBadge}>Verified</Text>
+                  <Text style={styles.verifiedBadge}>✓</Text>
                 )}
               </TouchableOpacity>
             )}
           />
-          <TouchableOpacity
-            style={styles.floatingAdd}
-            onPress={() => navigation.navigate('AddContact')}
-          >
-            <Text style={styles.floatingAddText}>+</Text>
-          </TouchableOpacity>
+          <View style={styles.bottomBar}>
+            <TouchableOpacity
+              style={styles.bottomButton}
+              onPress={() => navigation.navigate('ShareKey')}
+            >
+              <Text style={styles.bottomButtonText}>Share Key</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.bottomButton}
+              onPress={() => navigation.navigate('AddContact')}
+            >
+              <Text style={styles.bottomButtonText}>Add Contact</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.bottomButton}
+              onPress={() => navigation.navigate('Settings')}
+            >
+              <Text style={styles.bottomButtonText}>Settings</Text>
+            </TouchableOpacity>
+          </View>
         </>
       )}
 
-      <TouchableOpacity
-        style={styles.settingsButton}
-        onPress={() => navigation.navigate('Settings')}
-      >
-        <Text style={styles.settingsButtonText}>Settings</Text>
-      </TouchableOpacity>
+      {contacts.length === 0 && (
+        <TouchableOpacity
+          style={styles.settingsLink}
+          onPress={() => navigation.navigate('Settings')}
+        >
+          <Text style={styles.settingsLinkText}>Settings</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0D0D0D' },
-  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  emptyTitle: { fontSize: 20, fontWeight: '600', color: '#FFFFFF' },
-  emptySubtitle: { fontSize: 14, color: '#888888', marginTop: 8 },
-  addButton: {
-    marginTop: 24,
+  emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  emptyIcon: { fontSize: 48, marginBottom: 16 },
+  emptyTitle: { fontSize: 22, fontWeight: '600', color: '#FFFFFF' },
+  emptySubtitle: { fontSize: 14, color: '#888888', marginTop: 8, textAlign: 'center' },
+  primaryButton: {
     backgroundColor: '#FFFFFF',
-    paddingVertical: 12,
-    paddingHorizontal: 32,
-    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    borderRadius: 12,
+    marginTop: 32,
+    width: '100%',
+    alignItems: 'center',
   },
-  addButtonText: { fontSize: 15, fontWeight: '600', color: '#0D0D0D' },
+  primaryButtonText: { fontSize: 16, fontWeight: '600', color: '#0D0D0D' },
+  secondaryButton: {
+    backgroundColor: 'transparent',
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    borderRadius: 12,
+    marginTop: 12,
+    width: '100%',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  secondaryButtonText: { fontSize: 16, fontWeight: '600', color: '#888888' },
   contactRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#1A1A1A',
   },
-  contactInfo: { flex: 1 },
-  contactName: { fontSize: 16, fontWeight: '500', color: '#FFFFFF' },
-  contactKey: { fontSize: 12, color: '#555555', fontFamily: 'monospace', marginTop: 4 },
-  verifiedBadge: { fontSize: 11, color: '#34C759', fontWeight: '600' },
-  floatingAdd: {
-    position: 'absolute',
-    right: 20,
-    bottom: 80,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#FFFFFF',
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#1A3A5C',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 14,
   },
-  floatingAddText: { fontSize: 28, fontWeight: '300', color: '#0D0D0D', marginTop: -2 },
-  settingsButton: {
-    padding: 16,
-    alignItems: 'center',
+  avatarText: { fontSize: 18, fontWeight: '600', color: '#FFFFFF' },
+  contactInfo: { flex: 1 },
+  contactName: { fontSize: 16, fontWeight: '500', color: '#FFFFFF' },
+  contactKey: { fontSize: 11, color: '#555555', fontFamily: 'monospace', marginTop: 2 },
+  verifiedBadge: { fontSize: 16, color: '#34C759' },
+  bottomBar: {
+    flexDirection: 'row',
     borderTopWidth: 1,
     borderTopColor: '#1A1A1A',
   },
-  settingsButtonText: { fontSize: 14, color: '#888888' },
+  bottomButton: { flex: 1, paddingVertical: 14, alignItems: 'center' },
+  bottomButtonText: { fontSize: 13, color: '#888888' },
+  settingsLink: { padding: 16, alignItems: 'center' },
+  settingsLinkText: { fontSize: 14, color: '#555555' },
 });
