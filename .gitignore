@@ -45,3 +45,4 @@ credentials.json
 *.p12
 *.key
 *.keystore
+apps/mobile/ios/VorynRust/libvoryn_core.a
