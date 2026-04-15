@@ -5,6 +5,7 @@
 
 pub mod auth;
 pub mod bridge;
+pub mod ffi;
 pub mod keystore;
 pub mod messaging;
 pub mod wipe;
