@@ -85,6 +85,15 @@ export const SettingsScreen: React.FC = () => {
       </View>
 
       <View style={styles.section}>
+        <TouchableOpacity style={styles.linkButton} onPress={() => navigation.navigate('ShareKey')}>
+          <Text style={styles.linkButtonText}>Share My Public Key</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.linkButton} onPress={() => navigation.navigate('Debug')}>
+          <Text style={styles.linkButtonText}>Debug Console</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.section}>
         <TouchableOpacity style={styles.dangerButton} onPress={handleDeleteIdentity}>
           <Text style={styles.dangerButtonText}>Delete Identity & All Data</Text>
         </TouchableOpacity>
@@ -100,5 +109,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 15, color: '#FFFFFF', marginTop: 8 },
   value: { fontSize: 13, color: '#555555', fontFamily: 'monospace', marginTop: 2 },
   dangerButton: { backgroundColor: '#1A1A1A', paddingVertical: 14, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: '#FF3B30' },
+  linkButton: { backgroundColor: '#1A1A1A', paddingVertical: 14, borderRadius: 8, alignItems: 'center', marginTop: 8, borderWidth: 1, borderColor: '#333333' },
+  linkButtonText: { fontSize: 14, color: '#FFFFFF' },
   dangerButtonText: { fontSize: 14, fontWeight: '600', color: '#FF3B30' },
 });

@@ -6,6 +6,9 @@ import { ContactsScreen } from '../screens/ContactsScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { AddContactScreen } from '../screens/AddContactScreen';
+import { ShareKeyScreen } from '../screens/ShareKeyScreen';
+import { ContactDetailScreen } from '../screens/ContactDetailScreen';
+import { DebugScreen } from '../screens/DebugScreen';
 
 export type RootStackParamList = {
   Onboarding: undefined;
@@ -13,6 +16,9 @@ export type RootStackParamList = {
   Chat: { contactPubkeyHex: string; displayName?: string };
   Settings: undefined;
   AddContact: undefined;
+  ShareKey: undefined;
+  ContactDetail: { contactPubkeyHex: string };
+  Debug: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -46,16 +52,11 @@ export const RootNavigator: React.FC = () => {
             title: route.params.displayName ?? 'Chat',
           })}
         />
-        <Stack.Screen
-          name="Settings"
-          component={SettingsScreen}
-          options={{ title: 'Settings' }}
-        />
-        <Stack.Screen
-          name="AddContact"
-          component={AddContactScreen}
-          options={{ title: 'Add Contact' }}
-        />
+        <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
+        <Stack.Screen name="AddContact" component={AddContactScreen} options={{ title: 'Add Contact' }} />
+        <Stack.Screen name="ShareKey" component={ShareKeyScreen} options={{ title: 'My Key' }} />
+        <Stack.Screen name="ContactDetail" component={ContactDetailScreen} options={{ title: 'Contact' }} />
+        <Stack.Screen name="Debug" component={DebugScreen} options={{ title: 'Debug' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
