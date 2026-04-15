@@ -94,10 +94,22 @@ export const SettingsScreen: React.FC = () => {
             <Text style={styles.linkButtonText}>Set Passcode Lock</Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={styles.linkButton} onPress={async () => {
-            await PasscodeService.removePasscode();
-            setHasPasscode(false);
-            Alert.alert('Passcode Removed', 'Passcode lock has been disabled.');
+          <TouchableOpacity style={styles.linkButton} onPress={() => {
+            Alert.prompt(
+              'Remove Passcode',
+              'Enter your current passcode to remove it.',
+              async (input) => {
+                const valid = await PasscodeService.verifyPasscode(input);
+                if (valid) {
+                  await PasscodeService.removePasscode();
+                  setHasPasscode(false);
+                  Alert.alert('Passcode Removed', 'Passcode lock has been disabled.');
+                } else {
+                  Alert.alert('Wrong Passcode', 'The passcode you entered is incorrect.');
+                }
+              },
+              'secure-text',
+            );
           }}>
             <Text style={styles.linkButtonText}>Remove Passcode Lock</Text>
           </TouchableOpacity>
