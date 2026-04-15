@@ -5,6 +5,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  StatusBar,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -17,20 +18,13 @@ export const OnboardingScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
-  const [bridgeStatus, setBridgeStatus] = useState<string>('');
 
   useEffect(() => {
     const checkExisting = async () => {
-      try {
-        const existing = await VorynBridge.loadIdentity();
-        if (existing) {
-          navigation.replace('Contacts');
-          return;
-        }
-        const hello = await VorynBridge.helloFromRust();
-        setBridgeStatus(hello);
-      } catch {
-        setBridgeStatus('Bridge not connected');
+      const existing = await VorynBridge.loadIdentity();
+      if (existing) {
+        navigation.replace('Contacts');
+        return;
       }
       setIsLoading(false);
     };
@@ -44,13 +38,14 @@ export const OnboardingScreen: React.FC = () => {
       navigation.replace('Contacts');
     } catch (err) {
       console.error('Failed to create identity:', err);
+      setIsCreating(false);
     }
-    setIsCreating(false);
   };
 
   if (isLoading) {
     return (
       <View style={styles.container}>
+        <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
         <ActivityIndicator size="large" color="#FFFFFF" />
       </View>
     );
@@ -58,32 +53,38 @@ export const OnboardingScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Voryn</Text>
-      <Text style={styles.subtitle}>Private. Encrypted. Unreachable.</Text>
+      <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
 
-      {bridgeStatus ? (
-        <Text style={styles.bridgeStatus}>{bridgeStatus}</Text>
-      ) : null}
+      <View style={styles.logoContainer}>
+        <Text style={styles.title}>Voryn</Text>
+        <Text style={styles.subtitle}>Private. Encrypted. Unreachable.</Text>
+      </View>
 
-      <View style={styles.spacer} />
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={handleCreateIdentity}
+          disabled={isCreating}
+          activeOpacity={0.8}
+        >
+          {isCreating ? (
+            <ActivityIndicator color="#0D0D0D" />
+          ) : (
+            <Text style={styles.buttonText}>Create Identity</Text>
+          )}
+        </TouchableOpacity>
 
-      <TouchableOpacity
-        style={styles.button}
-        onPress={handleCreateIdentity}
-        disabled={isCreating}
-      >
-        {isCreating ? (
-          <ActivityIndicator color="#0D0D0D" />
-        ) : (
-          <Text style={styles.buttonText}>Create Identity</Text>
-        )}
-      </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.button, styles.secondaryButton]}
+          activeOpacity={0.8}
+        >
+          <Text style={[styles.buttonText, styles.secondaryButtonText]}>
+            I Have an Invite
+          </Text>
+        </TouchableOpacity>
 
-      <TouchableOpacity style={[styles.button, styles.secondaryButton]}>
-        <Text style={[styles.buttonText, styles.secondaryButtonText]}>
-          I Have an Invite
-        </Text>
-      </TouchableOpacity>
+        <Text style={styles.versionText}>v0.1.0</Text>
+      </View>
     </View>
   );
 };
@@ -96,47 +97,31 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
   },
-  title: {
-    fontSize: 48,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 4,
-  },
+  logoContainer: { alignItems: 'center', marginBottom: 80 },
+  title: { fontSize: 52, fontWeight: '700', color: '#FFFFFF', letterSpacing: 6 },
   subtitle: {
-    fontSize: 14,
-    color: '#888888',
-    marginTop: 8,
-    letterSpacing: 2,
+    fontSize: 13,
+    color: '#666666',
+    marginTop: 12,
+    letterSpacing: 3,
+    textTransform: 'uppercase',
   },
-  bridgeStatus: {
-    fontSize: 11,
-    color: '#555555',
-    marginTop: 16,
-    fontFamily: 'monospace',
-  },
-  spacer: {
-    height: 80,
-  },
+  buttonContainer: { width: '100%', alignItems: 'center' },
   button: {
     backgroundColor: '#FFFFFF',
     paddingVertical: 16,
     paddingHorizontal: 48,
-    borderRadius: 8,
+    borderRadius: 12,
     marginTop: 16,
     width: '100%',
     alignItems: 'center',
   },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0D0D0D',
-  },
+  buttonText: { fontSize: 16, fontWeight: '600', color: '#0D0D0D' },
   secondaryButton: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#333333',
+    borderColor: '#2A2A2A',
   },
-  secondaryButtonText: {
-    color: '#888888',
-  },
+  secondaryButtonText: { color: '#666666' },
+  versionText: { fontSize: 11, color: '#333333', marginTop: 32 },
 });

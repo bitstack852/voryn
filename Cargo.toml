@@ -6,6 +6,7 @@ members = [
     "crates/voryn-network",
     "crates/voryn-storage",
     "crates/voryn-protocol",
+    "crates/voryn-bootstrap",
 ]
 
 [workspace.package]
