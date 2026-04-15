@@ -6,6 +6,9 @@ license.workspace = true
 authors.workspace = true
 description = "Core library and UniFFI entry point for Voryn"
 
+[lib]
+crate-type = ["lib", "staticlib"]
+
 [dependencies]
 voryn-crypto = { path = "../voryn-crypto" }
 voryn-network = { path = "../voryn-network" }
