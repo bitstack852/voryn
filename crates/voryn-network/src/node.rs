@@ -147,7 +147,7 @@ pub async fn start_node(config: NodeConfig) -> Result<NodeHandle, NetworkError> 
 
             Ok(VorynBehaviour { kademlia, mdns, identify, messaging })
         })
-        .map_err(|e: NetworkError| e)?
+        .map_err(|e| NetworkError::StartFailed(e.to_string()))?
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
 
@@ -307,6 +307,7 @@ fn handle_swarm_event(
         SwarmEvent::Behaviour(VorynBehaviourEvent::Identify(identify::Event::Received {
             peer_id,
             info,
+            ..
         })) => {
             for addr in info.listen_addrs {
                 swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
@@ -322,9 +323,9 @@ fn handle_swarm_event(
             kad::Event::OutboundQueryProgressed { result, .. },
         )) => {
             if let kad::QueryResult::GetClosestPeers(Ok(ok)) = result {
-                for peer_id in ok.peers {
-                    debug!("DHT found peer: {}", peer_id);
-                    push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_id.to_string() });
+                for peer_info in ok.peers {
+                    debug!("DHT found peer: {}", peer_info.peer_id);
+                    push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_info.peer_id.to_string() });
                 }
             }
         }

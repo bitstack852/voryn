@@ -151,7 +151,7 @@ async fn main() -> anyhow::Result<()> {
                     debug!("Peer disconnected: {}", peer_id);
                 }
                 SwarmEvent::Behaviour(BootstrapBehaviourEvent::Identify(
-                    identify::Event::Received { peer_id, info },
+                    identify::Event::Received { peer_id, info, .. },
                 )) => {
                     for addr in &info.listen_addrs {
                         swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
