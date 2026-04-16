@@ -6,17 +6,23 @@
 //! - `/voryn/group-sync/1.0.0` — Group message synchronization
 //! - `/voryn/revocation/1.0.0` — Identity revocation broadcast
 
-/// Protocol ID for direct messaging.
+use serde::{Deserialize, Serialize};
+
 pub const MESSAGE_PROTOCOL: &str = "/voryn/message/1.0.0";
-
-/// Protocol ID for delivery acknowledgment.
 pub const ACK_PROTOCOL: &str = "/voryn/ack/1.0.0";
-
-/// Protocol ID for remote wipe commands.
 pub const WIPE_PROTOCOL: &str = "/voryn/wipe/1.0.0";
-
-/// Protocol ID for group message sync.
 pub const GROUP_SYNC_PROTOCOL: &str = "/voryn/group-sync/1.0.0";
-
-/// Protocol ID for identity revocation broadcast.
 pub const REVOCATION_PROTOCOL: &str = "/voryn/revocation/1.0.0";
+
+/// Outbound message request carrying opaque encrypted bytes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VorynRequest {
+    /// Encrypted message payload (Double Ratchet ciphertext).
+    pub data: Vec<u8>,
+}
+
+/// Acknowledgment response from the receiving peer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VorynResponse {
+    pub accepted: bool,
+}

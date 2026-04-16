@@ -163,23 +163,114 @@ export async function deleteIdentity(): Promise<void> {
 
 // ── Network ───────────────────────────────────────────────────────
 
-export async function startNetwork(_bootstrapPeers: string[]): Promise<void> {
-  // Will connect to bootstrap nodes via libp2p
+/**
+ * Start the libp2p P2P node via the Rust native module.
+ * The node runs on a background Tokio thread inside the Rust library.
+ * Returns the libp2p PeerId string on success.
+ */
+export async function startNetwork(bootstrapPeers: string[]): Promise<string> {
+  const identity = await loadIdentity();
+  const keypairSeedHex = identity?.secretKeySeedHex ?? '';
+
+  const configJson = JSON.stringify({
+    keypair_seed_hex: keypairSeedHex,
+    bootstrap_peers: bootstrapPeers,
+    listen_port: 0,
+    enable_mdns: true,
+  });
+
+  if (hasRustBridge) {
+    try {
+      const resultJson: string = await VorynCore.startNode(configJson);
+      const result = JSON.parse(resultJson);
+      if (!result.ok) throw new Error(result.error ?? 'Unknown error');
+      return result.peer_id as string;
+    } catch (e) {
+      throw new Error(`Failed to start node: ${e}`);
+    }
+  }
+  // JS-only fallback: simulate a peer ID from the identity key
+  return identity?.publicKeyHex?.slice(0, 32) ?? 'js-fallback-peer';
 }
 
-export async function stopNetwork(): Promise<void> {}
+export async function stopNetwork(): Promise<void> {
+  if (hasRustBridge) {
+    try {
+      await VorynCore.stopNode();
+    } catch {
+      // Ignore — node may not be running
+    }
+  }
+}
 
 export async function getNetworkStatus(): Promise<{
   status: NetworkStatus;
   peerCount: number;
   peerId: string | null;
 }> {
+  if (hasRustBridge) {
+    try {
+      const json: string = await VorynCore.nodeStatus();
+      const s = JSON.parse(json);
+      return {
+        status: s.running ? 'connected' : 'disconnected',
+        peerCount: 0,
+        peerId: s.peer_id ?? null,
+      };
+    } catch {
+      // Fall through
+    }
+  }
   const identity = await loadIdentity();
   return {
     status: 'disconnected',
     peerCount: 0,
     peerId: identity?.publicKeyHex?.slice(0, 16) ?? null,
   };
+}
+
+/**
+ * Poll for the next network event from the Rust node (non-blocking).
+ * Returns null if the queue is empty.
+ */
+export async function pollNetworkEvent(): Promise<NetworkEvent | null> {
+  if (!hasRustBridge) return null;
+  try {
+    const result = await VorynCore.pollEvent();
+    if (result == null) return null;
+    return JSON.parse(result) as NetworkEvent;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Send raw encrypted bytes to a peer via the Rust node.
+ * `dataHex` must be a hex-encoded string of the ciphertext.
+ */
+export async function sendRawToPeer(peerId: string, dataHex: string): Promise<void> {
+  if (!hasRustBridge) {
+    throw new Error('Native bridge not available');
+  }
+  const resultJson: string = await VorynCore.sendMessage(peerId, dataHex);
+  const result = JSON.parse(resultJson);
+  if (!result.ok) throw new Error(result.error ?? 'Send failed');
+}
+
+// ── Network event type ────────────────────────────────────────────
+
+export type NetworkEventType =
+  | 'started'
+  | 'discovered'
+  | 'connected'
+  | 'disconnected'
+  | 'message';
+
+export interface NetworkEvent {
+  type: NetworkEventType;
+  peer_id: string;
+  addrs?: string[];      // present on 'started'
+  data_hex?: string;     // present on 'message'
 }
 
 // ── Contacts ──────────────────────────────────────────────────────

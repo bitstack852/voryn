@@ -24,8 +24,9 @@ zeroize = { version = "1", features = ["derive"] }
 rand = "0.8"
 
 # Networking
-libp2p = { version = "0.54", features = ["tokio", "tcp", "noise", "yamux", "kad", "mdns", "identify", "macros"] }
+libp2p = { version = "0.54", features = ["tokio", "tcp", "noise", "yamux", "kad", "mdns", "identify", "macros", "request-response", "json"] }
 tokio = { version = "1", features = ["full"] }
+futures = "0.3"
 
 # Storage
 rusqlite = { version = "0.31", features = ["bundled-sqlcipher"] }

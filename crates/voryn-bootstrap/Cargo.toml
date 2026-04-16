@@ -11,6 +11,8 @@ name = "voryn-bootstrap"
 path = "src/main.rs"
 
 [dependencies]
+libp2p.workspace = true
+futures.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -22,5 +24,3 @@ anyhow.workspace = true
 
 # CLI args
 clap = { version = "4", features = ["derive"] }
-
-# Networking — stub for now, will use voryn-network when libp2p is enabled
