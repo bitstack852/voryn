@@ -9,6 +9,7 @@ on:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'deploy/coolify/Dockerfile.bootstrap'
+  workflow_dispatch:
 
 env:
   REGISTRY: ghcr.io
