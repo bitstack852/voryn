@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
+import * as NetworkService from '../services/NetworkService';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Contacts'>;
 
@@ -20,6 +21,13 @@ export const ContactsScreen: React.FC = () => {
   const loadContacts = useCallback(async () => {
     const result = await VorynBridge.getContacts();
     setContacts(result);
+  }, []);
+
+  // Connect to relay when Contacts screen loads (identity is guaranteed to exist)
+  useEffect(() => {
+    NetworkService.connect().catch((e) => {
+      console.log('[Contacts] Relay connection failed:', e);
+    });
   }, []);
 
   useFocusEffect(
