@@ -33,9 +33,7 @@ services:
   #
   # Domain: boot1.voryn.bitstack.website (DNS A record, no proxy)
   bootstrap:
-    build:
-      context: ../..
-      dockerfile: deploy/coolify/Dockerfile.bootstrap
+    image: ghcr.io/bitstack852/voryn-bootstrap:latest
     restart: unless-stopped
     ports:
       - "4001:4001/tcp"
