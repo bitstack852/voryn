@@ -49,7 +49,7 @@ mod tests {
             trigger_remote_wipe: false,
         };
 
-        assert!(config.is_duress_passcode(&vec![0xAA; 32]));
-        assert!(!config.is_duress_passcode(&vec![0xBB; 32]));
+        assert!(config.is_duress_passcode(&[0xAA; 32]));
+        assert!(!config.is_duress_passcode(&[0xBB; 32]));
     }
 }

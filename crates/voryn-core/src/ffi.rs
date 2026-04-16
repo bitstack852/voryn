@@ -59,7 +59,7 @@ pub extern "C" fn voryn_generate_identity() -> *const c_char {
 
 /// Compute a safety number from two 32-byte public keys.
 #[no_mangle]
-pub extern "C" fn voryn_compute_safety_number(
+pub unsafe extern "C" fn voryn_compute_safety_number(
     our_pk: *const u8,
     their_pk: *const u8,
 ) -> *const c_char {
@@ -88,7 +88,7 @@ pub extern "C" fn voryn_compute_safety_number(
 ///
 /// Returns JSON: `{"ok":true,"peer_id":"..."}` or `{"ok":false,"error":"..."}`.
 #[no_mangle]
-pub extern "C" fn voryn_start_node(config_json: *const c_char) -> *const c_char {
+pub unsafe extern "C" fn voryn_start_node(config_json: *const c_char) -> *const c_char {
     let json_str = match unsafe { CStr::from_ptr(config_json) }.to_str() {
         Ok(s) => s.to_owned(),
         Err(e) => return error_json(format!("Invalid UTF-8 in config: {}", e)),
@@ -146,7 +146,7 @@ pub extern "C" fn voryn_stop_node() -> *const c_char {
 ///
 /// Returns JSON: `{"ok":true}` or `{"ok":false,"error":"..."}`.
 #[no_mangle]
-pub extern "C" fn voryn_send_message(
+pub unsafe extern "C" fn voryn_send_message(
     peer_id_cstr: *const c_char,
     data: *const u8,
     data_len: usize,
@@ -260,7 +260,7 @@ fn hex_encode(bytes: &[u8]) -> String {
 }
 
 fn hex_decode(s: &str) -> Option<Vec<u8>> {
-    if s.len() % 2 != 0 {
+    if !s.len().is_multiple_of(2) {
         return None;
     }
     (0..s.len())

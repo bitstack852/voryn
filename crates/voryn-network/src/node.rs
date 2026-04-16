@@ -320,13 +320,14 @@ fn handle_swarm_event(
             debug!("DHT routing updated: {}", peer);
         }
         SwarmEvent::Behaviour(VorynBehaviourEvent::Kademlia(
-            kad::Event::OutboundQueryProgressed { result, .. },
+            kad::Event::OutboundQueryProgressed {
+                result: kad::QueryResult::GetClosestPeers(Ok(ok)),
+                ..
+            },
         )) => {
-            if let kad::QueryResult::GetClosestPeers(Ok(ok)) = result {
-                for peer_info in ok.peers {
-                    debug!("DHT found peer: {}", peer_info.peer_id);
-                    push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_info.peer_id.to_string() });
-                }
+            for peer_info in ok.peers {
+                debug!("DHT found peer: {}", peer_info.peer_id);
+                push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_info.peer_id.to_string() });
             }
         }
 

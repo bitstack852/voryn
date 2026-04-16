@@ -159,11 +159,9 @@ async fn main() -> anyhow::Result<()> {
                     debug!("Identified peer {}: protocols={:?}", peer_id, info.protocols);
                 }
                 SwarmEvent::Behaviour(BootstrapBehaviourEvent::Kademlia(
-                    kad::Event::RoutingUpdated { peer, is_new_peer, .. },
+                    kad::Event::RoutingUpdated { peer, is_new_peer: true, .. },
                 )) => {
-                    if is_new_peer {
-                        info!("New DHT peer: {}", peer);
-                    }
+                    info!("New DHT peer: {}", peer);
                 }
                 SwarmEvent::Behaviour(BootstrapBehaviourEvent::Kademlia(
                     kad::Event::InboundRequest { request },

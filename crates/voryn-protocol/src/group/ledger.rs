@@ -151,7 +151,7 @@ mod tests {
         );
         assert_eq!(ledger.entries().len(), 1);
         assert_eq!(ledger.current_members().len(), 1);
-        assert!(ledger.is_admin(&vec![1u8; 32]));
+        assert!(ledger.is_admin(&[1u8; 32]));
     }
 
     #[test]
