@@ -55,9 +55,9 @@ export const ContactsScreen: React.FC = () => {
 
           <TouchableOpacity
             style={styles.secondaryButton}
-            onPress={() => navigation.navigate('AddContact')}
+            onPress={() => navigation.navigate('ScanQR')}
           >
-            <Text style={styles.secondaryButtonText}>Add Contact</Text>
+            <Text style={styles.secondaryButtonText}>Scan QR / Add Contact</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -108,9 +108,9 @@ export const ContactsScreen: React.FC = () => {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.bottomButton}
-              onPress={() => navigation.navigate('AddContact')}
+              onPress={() => navigation.navigate('ScanQR')}
             >
-              <Text style={styles.bottomButtonText}>Add Contact</Text>
+              <Text style={styles.bottomButtonText}>Scan QR</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.bottomButton}
