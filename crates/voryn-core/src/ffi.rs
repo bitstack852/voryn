@@ -4,7 +4,6 @@
 //! with voryn_free_string(). Network functions use a global Tokio runtime
 //! and a process-wide node handle stored in ACTIVE_NODE.
 
-use std::collections::VecDeque;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::{Mutex, OnceLock};
