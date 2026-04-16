@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,17 +6,16 @@ import {
   TouchableOpacity,
   Alert,
   TextInput,
+  NativeModules,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
 
-type Nav = NativeStackNavigationProp<RootStackParamList, 'ScanQR'>;
+const { QRScanner } = NativeModules;
 
-// Note: react-native-vision-camera requires camera permission and native setup.
-// For now, we provide a paste-from-clipboard alternative alongside camera scanning.
-// The camera scanner will be enabled once VisionCamera is configured.
+type Nav = NativeStackNavigationProp<RootStackParamList, 'ScanQR'>;
 
 export const ScanQRScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
@@ -24,27 +23,23 @@ export const ScanQRScreen: React.FC = () => {
   const [isAdding, setIsAdding] = useState(false);
 
   const processVorynUri = async (uri: string) => {
-    // Parse voryn:// URI or raw hex key
     let pubkeyHex = uri.trim();
 
     if (pubkeyHex.startsWith('voryn://')) {
       pubkeyHex = pubkeyHex.replace('voryn://', '');
     }
 
-    // Validate hex key
     if (!/^[0-9a-fA-F]{64}$/.test(pubkeyHex)) {
-      Alert.alert('Invalid Key', 'The scanned code is not a valid Voryn public key.');
+      Alert.alert('Invalid Key', 'Not a valid Voryn public key.');
       return;
     }
 
-    // Check if it's our own key
     const identity = await VorynBridge.loadIdentity();
     if (identity && identity.publicKeyHex === pubkeyHex) {
-      Alert.alert('That\'s You', 'You scanned your own public key.');
+      Alert.alert("That's You", 'You scanned your own key.');
       return;
     }
 
-    // Check if already added
     const contacts = await VorynBridge.getContacts();
     if (contacts.some((c) => c.publicKeyHex === pubkeyHex)) {
       Alert.alert('Already Added', 'This contact is already in your list.');
@@ -70,13 +65,35 @@ export const ScanQRScreen: React.FC = () => {
     );
   };
 
+  const handleScanCamera = async () => {
+    if (!QRScanner) {
+      Alert.alert('Not Available', 'QR scanner is not available on this device.');
+      return;
+    }
+
+    try {
+      const result = await QRScanner.scan();
+      if (result) {
+        await processVorynUri(result);
+      }
+    } catch (e: any) {
+      if (e.code === 'CANCELLED') {
+        // User cancelled — do nothing
+      } else if (e.code === 'CAMERA_DENIED') {
+        Alert.alert('Camera Access', 'Please allow camera access in Settings to scan QR codes.');
+      } else {
+        Alert.alert('Error', e.message || 'Failed to scan QR code.');
+      }
+    }
+  };
+
   return (
     <View style={styles.container}>
-      <View style={styles.cameraPlaceholder}>
-        <Text style={styles.cameraIcon}>📷</Text>
-        <Text style={styles.cameraText}>Camera QR scanning</Text>
-        <Text style={styles.cameraSubtext}>Coming soon — use paste method below</Text>
-      </View>
+      <TouchableOpacity style={styles.scanButton} onPress={handleScanCamera}>
+        <Text style={styles.scanIcon}>📷</Text>
+        <Text style={styles.scanText}>Open Camera Scanner</Text>
+        <Text style={styles.scanSubtext}>Point at a Voryn QR code</Text>
+      </TouchableOpacity>
 
       <View style={styles.divider}>
         <View style={styles.dividerLine} />
@@ -111,18 +128,17 @@ export const ScanQRScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0D0D0D', padding: 24 },
-  cameraPlaceholder: {
-    backgroundColor: '#1A1A1A',
+  scanButton: {
+    backgroundColor: '#1A3A5C',
     borderRadius: 16,
-    padding: 40,
+    padding: 32,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#333333',
-    borderStyle: 'dashed',
+    borderColor: '#4A9EFF',
   },
-  cameraIcon: { fontSize: 48, marginBottom: 12 },
-  cameraText: { fontSize: 16, color: '#888888' },
-  cameraSubtext: { fontSize: 12, color: '#555555', marginTop: 4 },
+  scanIcon: { fontSize: 48, marginBottom: 12 },
+  scanText: { fontSize: 18, fontWeight: '600', color: '#FFFFFF' },
+  scanSubtext: { fontSize: 13, color: '#888888', marginTop: 4 },
   divider: { flexDirection: 'row', alignItems: 'center', marginVertical: 24 },
   dividerLine: { flex: 1, height: 1, backgroundColor: '#333333' },
   dividerText: { color: '#555555', marginHorizontal: 16, fontSize: 13 },
