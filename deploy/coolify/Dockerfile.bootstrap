@@ -1,46 +1,39 @@
 # Voryn Bootstrap Node — Coolify Build
-# Compiles the Rust network library and runs the bootstrap node
-#
-# Until the standalone bootstrap binary is built (Phase 1 production),
-# this image serves as a placeholder that compiles and verifies the code.
+# Builds the voryn-bootstrap binary and runs it as a libp2p DHT node.
 
-FROM rust:1.78-slim-bookworm AS builder
+FROM rust:1.82-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
-    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY Cargo.toml rust-toolchain.toml ./
+
+COPY Cargo.toml Cargo.lock* ./
 COPY crates/ crates/
 
-# Build the network crate
-RUN cargo build --release -p voryn-network 2>&1 || echo "Build completed (bootstrap binary pending Phase 1)"
+# Override rust-toolchain.toml — mobile targets (iOS/Android) aren't
+# available in this Docker environment; we only need the host target.
+RUN printf '[toolchain]\nchannel = "stable"\n' > rust-toolchain.toml
 
-# ── Runtime ──────────────────────────────────────────
+RUN cargo build --release -p voryn-bootstrap
+
+# ── Runtime ──────────────────────────────────────────────────────────
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \
-    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -r -s /bin/false -d /data voryn \
     && mkdir -p /data && chown voryn:voryn /data
 
-# Copy binary when it exists
-# COPY --from=builder /build/target/release/voryn-bootstrap /usr/local/bin/
+COPY --from=builder /build/target/release/voryn-bootstrap /usr/local/bin/
 
 USER voryn
 WORKDIR /data
 
 EXPOSE 4001/tcp
-EXPOSE 4001/udp
 
-# Placeholder entrypoint — replace with actual binary once built
-# ENTRYPOINT ["voryn-bootstrap"]
-# CMD ["--listen", "/ip4/0.0.0.0/tcp/4001", "--identity-file", "/data/node-identity.key"]
-
-# For now, keep the container alive for testing connectivity
-CMD ["sh", "-c", "echo 'Bootstrap node placeholder — waiting for Phase 1 binary' && while true; do nc -l -p 4001 -e echo 'Voryn bootstrap node'; sleep 1; done"]
+ENTRYPOINT ["voryn-bootstrap"]
+CMD ["--listen", "/ip4/0.0.0.0/tcp/4001", "--identity-file", "/data/node-identity.key"]
