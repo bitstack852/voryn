@@ -1,6 +1,6 @@
 # Development Status
 
-Last updated: 2026-04-15 (end of session 2)
+Last updated: 2026-04-16 (end of session 3)
 
 ## Project Overview
 
@@ -87,6 +87,11 @@ Messages → Stored locally in AsyncStorage
 | `voryn_hello()` | Bridge test | **Working on iPhone** |
 | `voryn_generate_identity()` | Real Ed25519 keypair | **Working on iPhone** |
 | `voryn_compute_safety_number()` | Deterministic safety number | **Compiled** |
+| `voryn_start_node(config_json)` | Start libp2p node | **Implemented — needs device test** |
+| `voryn_stop_node()` | Stop libp2p node | **Implemented — needs device test** |
+| `voryn_send_message(peer_id, data, len)` | Send encrypted bytes | **Implemented — needs device test** |
+| `voryn_poll_event()` | Poll event queue | **Implemented — needs device test** |
+| `voryn_node_status()` | Node running status | **Implemented — needs device test** |
 | `voryn_free_string()` | Memory cleanup | **Compiled** |
 
 ### Bridge Architecture
@@ -128,10 +133,10 @@ All Rust code compiles clean on macOS (`cargo check --workspace` — 0 errors).
 |-------|---------|--------|
 | `voryn-core` | FFI bridge, orchestration, auth, wipe | **Compiled + bridged to iOS** |
 | `voryn-crypto` | Ed25519, X25519, XSalsa20-Poly1305, Argon2id | **Compiled, all tests pass** |
-| `voryn-network` | libp2p DHT node, transport, discovery | **Compiled (stubs)** |
+| `voryn-network` | libp2p DHT node, transport, discovery | **Full implementation — needs build test** |
 | `voryn-storage` | SQLCipher database, migrations, CRUD | **Compiled, all tests pass** |
 | `voryn-protocol` | Double Ratchet, Shamir, group ledger, invites | **Compiled, all tests pass** |
-| `voryn-bootstrap` | Standalone DHT bootstrap server | **Deployed and running on Coolify** |
+| `voryn-bootstrap` | Standalone DHT bootstrap server | **Rewritten with real libp2p — needs redeploy** |
 
 ---
 
@@ -159,6 +164,19 @@ All Rust code compiles clean on macOS (`cargo check --workspace` — 0 errors).
 - VorynBridge.ts with Rust/JS fallback pattern
 - C FFI layer for Rust ↔ Objective-C ↔ React Native
 
+### Session 3: P2P Networking Implementation
+- Re-enabled libp2p in `voryn-network` (was disabled pending Cargo.lock)
+- Added `request-response` + `json` features to workspace
+- Full libp2p swarm: Kademlia DHT + mDNS + Identify + TCP/Noise/Yamux
+- `/voryn/message/1.0.0` custom protocol via `request_response::json`
+- Pending-message queue: messages queued while peer is unreachable, flushed on connect
+- Rewritten `voryn-bootstrap` with real libp2p (was TCP stub) — needs redeploy
+- 5 new C FFI exports: `voryn_start_node`, `voryn_stop_node`, `voryn_send_message`, `voryn_poll_event`, `voryn_node_status`
+- Updated iOS header (`voryn_core.h`) and `VorynCoreModule.m` with new RCT methods
+- `NetworkService.ts` now drives the Rust node (poll every 500ms, event handlers)
+- `VorynBridge.ts` network functions wired to native module
+- `useNetwork` hook reads live state from `NetworkService`
+
 ---
 
 ## What Still Needs To Be Done (Road to Production)
@@ -169,11 +187,13 @@ All Rust code compiles clean on macOS (`cargo check --workspace` — 0 errors).
 
 | Task | Effort | Status |
 |------|--------|--------|
-| Resolve libp2p yanked dependency (update to working version) | 1 hour | Not started |
-| Implement full libp2p swarm in Rust (Kademlia DHT + mDNS + QUIC) | 1-2 days | Stubs exist |
-| Wire libp2p node to run as background thread via FFI | 1 day | Not started |
-| Implement `/voryn/message/1.0.0` custom protocol | 1 day | Protocol defined |
-| Wire bootstrap node PeerId into app network config | 30 min | Config exists |
+| Resolve libp2p yanked dependency | 1 hour | ✅ Done (Session 3) |
+| Implement full libp2p swarm (Kademlia DHT + mDNS + TCP/Noise) | 1-2 days | ✅ Done (Session 3) |
+| Wire libp2p node as background thread via FFI | 1 day | ✅ Done (Session 3) |
+| Implement `/voryn/message/1.0.0` custom protocol | 1 day | ✅ Done (Session 3) |
+| **`cargo build` — verify it compiles** | 30 min | **Next: needs device/CI** |
+| Redeploy bootstrap node (new libp2p binary on Coolify) | 30 min | **Next** |
+| Update bootstrap multiaddr in `config.rs` with new libp2p PeerId | 15 min | **Next** |
 | Test mDNS discovery (two phones on same WiFi) | 1 hour | Not started |
 | Test DHT discovery (two phones on different networks via bootstrap) | 2 hours | Not started |
 

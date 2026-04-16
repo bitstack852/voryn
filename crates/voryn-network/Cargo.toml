@@ -7,12 +7,12 @@ authors.workspace = true
 description = "P2P networking layer for Voryn — libp2p DHT, transport, discovery"
 
 [dependencies]
-# libp2p will be re-enabled once Cargo.lock is generated from a dev environment
-# libp2p.workspace = true
-# futures = "0.3"
+libp2p.workspace = true
+futures.workspace = true
 rand.workspace = true
 tokio.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 anyhow.workspace = true

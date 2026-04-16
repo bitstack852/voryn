@@ -1,198 +1,180 @@
 //! Voryn Bootstrap Node — DHT peer discovery server.
 //!
-//! This binary runs on a server and helps new Voryn devices discover
-//! each other on the P2P network. It does NOT store messages or relay traffic.
+//! Runs a full libp2p node in server mode. New Voryn devices dial this node
+//! to join the Kademlia DHT. It does NOT store messages or relay traffic.
 //!
 //! Usage:
 //!   voryn-bootstrap --listen /ip4/0.0.0.0/tcp/4001
 //!   voryn-bootstrap --listen /ip4/0.0.0.0/tcp/4001 --identity-file /opt/voryn/data/node.key
 
-use clap::Parser;
-use std::net::SocketAddr;
 use std::path::PathBuf;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
-use tracing::{info, warn, error};
+use std::time::Duration;
+
+use clap::Parser;
+use futures::StreamExt;
+use libp2p::{
+    identify, kad,
+    multiaddr::Protocol,
+    noise,
+    swarm::{NetworkBehaviour, SwarmEvent},
+    tcp, yamux, Multiaddr,
+};
+use tracing::{debug, info, warn};
 
 #[derive(Parser, Debug)]
 #[command(name = "voryn-bootstrap")]
 #[command(about = "Voryn DHT Bootstrap Node — peer discovery server")]
 struct Args {
-    /// Listen address (e.g., /ip4/0.0.0.0/tcp/4001 or 0.0.0.0:4001)
-    #[arg(short, long, default_value = "0.0.0.0:4001")]
+    /// Listen address (multiaddr or host:port)
+    #[arg(short, long, default_value = "/ip4/0.0.0.0/tcp/4001")]
     listen: String,
 
-    /// Path to store the node identity key
+    /// Path to store the node identity key (Ed25519 seed, hex-encoded JSON)
     #[arg(short, long, default_value = "node-identity.key")]
     identity_file: PathBuf,
 
-    /// Log level (trace, debug, info, warn, error)
     #[arg(long, default_value = "info")]
     log_level: String,
 }
 
-/// Node identity — persisted to disk so the PeerId stays the same across restarts.
+// ── Swarm behaviour ───────────────────────────────────────────────
+
+#[derive(NetworkBehaviour)]
+struct BootstrapBehaviour {
+    kademlia: kad::Behaviour<kad::store::MemoryStore>,
+    identify: identify::Behaviour,
+}
+
+// ── Identity persistence ──────────────────────────────────────────
+
 #[derive(serde::Serialize, serde::Deserialize)]
-struct NodeIdentity {
-    /// Ed25519 secret key seed (32 bytes, hex encoded)
-    secret_seed_hex: String,
-    /// Derived public key (hex encoded) — serves as the node's PeerId
-    public_key_hex: String,
+struct PersistedKey {
+    seed_hex: String,
 }
 
-impl NodeIdentity {
-    fn generate() -> Self {
+fn load_or_create_keypair(path: &PathBuf) -> anyhow::Result<libp2p::identity::Keypair> {
+    if path.exists() {
+        let json = std::fs::read_to_string(path)?;
+        let pk: PersistedKey = serde_json::from_str(&json)?;
+        let seed_bytes = hex_decode(&pk.seed_hex)?;
+        if seed_bytes.len() < 32 {
+            anyhow::bail!("Seed too short");
+        }
         let mut seed = [0u8; 32];
-        for byte in seed.iter_mut() {
-            *byte = rand::random();
+        seed.copy_from_slice(&seed_bytes[..32]);
+        let secret = libp2p::identity::ed25519::SecretKey::try_from_bytes(&mut seed)?;
+        let kp = libp2p::identity::ed25519::Keypair::from(secret);
+        let keypair = libp2p::identity::Keypair::from(kp);
+        info!("Loaded identity: {}", keypair.public().to_peer_id());
+        Ok(keypair)
+    } else {
+        let keypair = libp2p::identity::Keypair::generate_ed25519();
+        let ed25519_kp = keypair
+            .clone()
+            .try_into_ed25519()
+            .expect("just generated ed25519");
+        let seed_hex = hex_encode(ed25519_kp.secret().as_ref());
+        let persisted = PersistedKey { seed_hex };
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
         }
-        let secret_hex = hex_encode(&seed);
-        // For now, public key = hash of seed (placeholder until libp2p is wired)
-        let mut pk = [0u8; 32];
-        // Simple deterministic derivation for identity
-        for (i, byte) in seed.iter().enumerate() {
-            pk[i] = byte.wrapping_mul(37).wrapping_add(i as u8);
-        }
-        let public_hex = hex_encode(&pk);
-
-        Self {
-            secret_seed_hex: secret_hex,
-            public_key_hex: public_hex,
-        }
-    }
-
-    fn load_or_create(path: &PathBuf) -> anyhow::Result<Self> {
-        if path.exists() {
-            let data = std::fs::read_to_string(path)?;
-            let identity: NodeIdentity = serde_json::from_str(&data)?;
-            info!("Loaded existing identity: {}", &identity.public_key_hex[..16]);
-            Ok(identity)
-        } else {
-            let identity = Self::generate();
-            let data = serde_json::to_string_pretty(&identity)?;
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(path, data)?;
-            info!("Generated new identity: {}", &identity.public_key_hex[..16]);
-            Ok(identity)
-        }
+        std::fs::write(path, serde_json::to_string_pretty(&persisted)?)?;
+        info!("Generated new identity: {}", keypair.public().to_peer_id());
+        Ok(keypair)
     }
 }
 
-fn hex_encode(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
-}
-
-/// Parse listen address — supports both multiaddr format and standard socket format.
-fn parse_listen_addr(addr: &str) -> SocketAddr {
-    // Try standard socket addr first
-    if let Ok(sa) = addr.parse::<SocketAddr>() {
-        return sa;
-    }
-
-    // Try multiaddr format: /ip4/0.0.0.0/tcp/4001
-    let parts: Vec<&str> = addr.split('/').filter(|s| !s.is_empty()).collect();
-    if parts.len() >= 4 && parts[0] == "ip4" && parts[2] == "tcp" {
-        let ip = parts[1];
-        let port = parts[3];
-        if let Ok(sa) = format!("{}:{}", ip, port).parse::<SocketAddr>() {
-            return sa;
-        }
-    }
-
-    // Default
-    warn!("Could not parse listen address '{}', using default 0.0.0.0:4001", addr);
-    "0.0.0.0:4001".parse().unwrap()
-}
+// ── Main ──────────────────────────────────────────────────────────
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // Initialize logging
-    let filter = args.log_level.parse::<tracing_subscriber::filter::LevelFilter>()
+    let filter = args
+        .log_level
+        .parse::<tracing_subscriber::filter::LevelFilter>()
         .unwrap_or(tracing_subscriber::filter::LevelFilter::INFO);
-    tracing_subscriber::fmt()
-        .with_max_level(filter)
-        .init();
+    tracing_subscriber::fmt().with_max_level(filter).init();
 
-    info!("=== Voryn Bootstrap Node ===");
-    info!("Version: {}", env!("CARGO_PKG_VERSION"));
+    info!("=== Voryn Bootstrap Node v{} ===", env!("CARGO_PKG_VERSION"));
 
-    // Load or generate node identity
-    let identity = NodeIdentity::load_or_create(&args.identity_file)?;
-    info!("PeerId: {}", identity.public_key_hex);
+    let keypair = load_or_create_keypair(&args.identity_file)?;
+    let local_peer_id = keypair.public().to_peer_id();
+    info!("PeerId: {}", local_peer_id);
 
-    // Parse listen address
-    let listen_addr = parse_listen_addr(&args.listen);
-    info!("Listening on: {}", listen_addr);
+    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair.clone())
+        .with_tokio()
+        .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)?
+        .with_behaviour(|key| {
+            let peer_id = key.public().to_peer_id();
 
-    // Start the TCP listener
-    // When libp2p is enabled, this will be replaced with a full libp2p swarm.
-    // For now, we run a simple TCP server that responds to peer discovery requests.
-    let listener = TcpListener::bind(listen_addr).await?;
-    info!("Bootstrap node is running. Press Ctrl+C to stop.");
+            let mut kademlia = kad::Behaviour::new(
+                peer_id,
+                kad::store::MemoryStore::new(peer_id),
+            );
+            // Bootstrap nodes run in Server mode — they answer queries.
+            kademlia.set_mode(Some(kad::Mode::Server));
 
-    // Track connected peers
+            let identify = identify::Behaviour::new(identify::Config::new(
+                "/voryn/1.0.0".to_string(),
+                key.public(),
+            ));
+
+            Ok(BootstrapBehaviour { kademlia, identify })
+        })?
+        .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(300)))
+        .build();
+
+    let listen_addr: Multiaddr = parse_listen_addr(&args.listen);
+    swarm.listen_on(listen_addr)?;
+
+    info!("Bootstrap node running. Ctrl+C to stop.");
+
     let mut peer_count: u64 = 0;
 
     loop {
         tokio::select! {
-            result = listener.accept() => {
-                match result {
-                    Ok((mut socket, addr)) => {
-                        peer_count += 1;
-                        info!("Peer connected: {} (total: {})", addr, peer_count);
-
-                        let node_pk = identity.public_key_hex.clone();
-                        tokio::spawn(async move {
-                            // Send our identity to the connecting peer
-                            let response = serde_json::json!({
-                                "type": "bootstrap_hello",
-                                "version": "0.1.0",
-                                "peer_id": node_pk,
-                                "protocol": "voryn/bootstrap/1.0",
-                            });
-                            let data = serde_json::to_vec(&response).unwrap_or_default();
-                            let len = (data.len() as u32).to_be_bytes();
-
-                            if let Err(e) = socket.write_all(&len).await {
-                                warn!("Failed to write to {}: {}", addr, e);
-                                return;
-                            }
-                            if let Err(e) = socket.write_all(&data).await {
-                                warn!("Failed to write to {}: {}", addr, e);
-                                return;
-                            }
-
-                            // Read peer's hello message
-                            let mut len_buf = [0u8; 4];
-                            match socket.read_exact(&mut len_buf).await {
-                                Ok(_) => {
-                                    let msg_len = u32::from_be_bytes(len_buf) as usize;
-                                    if msg_len > 65536 {
-                                        warn!("Message too large from {}: {} bytes", addr, msg_len);
-                                        return;
-                                    }
-                                    let mut msg_buf = vec![0u8; msg_len];
-                                    if let Ok(_) = socket.read_exact(&mut msg_buf).await {
-                                        if let Ok(msg) = serde_json::from_slice::<serde_json::Value>(&msg_buf) {
-                                            info!("Peer {} registered: {:?}", addr, msg.get("peer_id"));
-                                        }
-                                    }
-                                }
-                                Err(_) => {
-                                    // Peer disconnected — that's fine for a simple ping
-                                }
-                            }
-                        });
+            event = swarm.select_next_some() => match event {
+                SwarmEvent::NewListenAddr { address, .. } => {
+                    info!("Listening on {}/p2p/{}", address, local_peer_id);
+                    info!("Bootstrap multiaddr: {}/p2p/{}", address, local_peer_id);
+                }
+                SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
+                    peer_count += 1;
+                    let addr = match &endpoint {
+                        libp2p::core::ConnectedPoint::Dialer { address, .. } => address.to_string(),
+                        libp2p::core::ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr.to_string(),
+                    };
+                    info!("Peer connected: {} from {} (total: {})", peer_id, addr, peer_count);
+                }
+                SwarmEvent::ConnectionClosed { peer_id, .. } => {
+                    debug!("Peer disconnected: {}", peer_id);
+                }
+                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Identify(
+                    identify::Event::Received { peer_id, info },
+                )) => {
+                    for addr in &info.listen_addrs {
+                        swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
                     }
-                    Err(e) => {
-                        error!("Accept error: {}", e);
+                    debug!("Identified peer {}: protocols={:?}", peer_id, info.protocols);
+                }
+                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Kademlia(
+                    kad::Event::RoutingUpdated { peer, is_new_peer, .. },
+                )) => {
+                    if is_new_peer {
+                        info!("New DHT peer: {}", peer);
                     }
                 }
-            }
+                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Kademlia(
+                    kad::Event::InboundRequest { request },
+                )) => {
+                    debug!("DHT inbound: {:?}", request);
+                }
+                SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+                    warn!("Outgoing connection error {:?}: {}", peer_id, error);
+                }
+                _ => {}
+            },
             _ = tokio::signal::ctrl_c() => {
                 info!("Shutting down bootstrap node...");
                 break;
@@ -202,4 +184,38 @@ async fn main() -> anyhow::Result<()> {
 
     info!("Bootstrap node stopped. Total peers served: {}", peer_count);
     Ok(())
+}
+
+// ── Helpers ───────────────────────────────────────────────────────
+
+fn parse_listen_addr(addr: &str) -> Multiaddr {
+    if let Ok(ma) = addr.parse::<Multiaddr>() {
+        return ma;
+    }
+    // Try host:port fallback
+    if let Ok(sa) = addr.parse::<std::net::SocketAddr>() {
+        let ip = sa.ip();
+        let port = sa.port();
+        let proto = match ip {
+            std::net::IpAddr::V4(v4) => Protocol::Ip4(v4),
+            std::net::IpAddr::V6(v6) => Protocol::Ip6(v6),
+        };
+        let mut ma = Multiaddr::empty();
+        ma.push(proto);
+        ma.push(Protocol::Tcp(port));
+        return ma;
+    }
+    warn!("Could not parse listen addr '{}', falling back to 0.0.0.0:4001", addr);
+    "/ip4/0.0.0.0/tcp/4001".parse().unwrap()
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn hex_decode(s: &str) -> anyhow::Result<Vec<u8>> {
+    (0..s.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| anyhow::anyhow!(e)))
+        .collect()
 }
