@@ -55,19 +55,29 @@ struct PersistedKey {
 fn load_or_create_keypair(path: &PathBuf) -> anyhow::Result<libp2p::identity::Keypair> {
     if path.exists() {
         let json = std::fs::read_to_string(path)?;
-        let pk: PersistedKey = serde_json::from_str(&json)?;
-        let seed_bytes = hex_decode(&pk.seed_hex)?;
-        if seed_bytes.len() < 32 {
-            anyhow::bail!("Seed too short");
+        match serde_json::from_str::<PersistedKey>(&json)
+            .ok()
+            .and_then(|pk| hex_decode(&pk.seed_hex).ok())
+            .filter(|b| b.len() >= 32)
+            .and_then(|mut b| {
+                let mut seed = [0u8; 32];
+                seed.copy_from_slice(&b[..32]);
+                libp2p::identity::ed25519::SecretKey::try_from_bytes(&mut seed).ok()
+            }) {
+            Some(secret) => {
+                let keypair = libp2p::identity::Keypair::from(
+                    libp2p::identity::ed25519::Keypair::from(secret),
+                );
+                info!("Loaded identity: {}", keypair.public().to_peer_id());
+                return Ok(keypair);
+            }
+            None => {
+                warn!("Identity file unreadable or wrong format — generating new identity");
+                std::fs::remove_file(path)?;
+            }
         }
-        let mut seed = [0u8; 32];
-        seed.copy_from_slice(&seed_bytes[..32]);
-        let secret = libp2p::identity::ed25519::SecretKey::try_from_bytes(&mut seed)?;
-        let kp = libp2p::identity::ed25519::Keypair::from(secret);
-        let keypair = libp2p::identity::Keypair::from(kp);
-        info!("Loaded identity: {}", keypair.public().to_peer_id());
-        Ok(keypair)
-    } else {
+    }
+    {
         let keypair = libp2p::identity::Keypair::generate_ed25519();
         let ed25519_kp = keypair
             .clone()
