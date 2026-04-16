@@ -9,6 +9,7 @@ import { AddContactScreen } from '../screens/AddContactScreen';
 import { ShareKeyScreen } from '../screens/ShareKeyScreen';
 import { ContactDetailScreen } from '../screens/ContactDetailScreen';
 import { DebugScreen } from '../screens/DebugScreen';
+import { ScanQRScreen } from '../screens/ScanQRScreen';
 import { PasscodeLockScreen } from '../screens/PasscodeLockScreen';
 import { PasscodeSetupPrompt } from '../screens/PasscodeSetupPrompt';
 import * as PasscodeService from '../services/PasscodeService';
@@ -23,6 +24,7 @@ export type RootStackParamList = {
   AddContact: undefined;
   ShareKey: undefined;
   ContactDetail: { contactPubkeyHex: string };
+  ScanQR: undefined;
   Debug: undefined;
 };
 
@@ -87,6 +89,7 @@ export const RootNavigator: React.FC = () => {
         <Stack.Screen name="AddContact" component={AddContactScreen} options={{ title: 'Add Contact' }} />
         <Stack.Screen name="ShareKey" component={ShareKeyScreen} options={{ title: 'My Key' }} />
         <Stack.Screen name="ContactDetail" component={ContactDetailScreen} options={{ title: 'Contact' }} />
+        <Stack.Screen name="ScanQR" component={ScanQRScreen} options={{ title: 'Scan QR Code' }} />
         <Stack.Screen name="Debug" component={DebugScreen} options={{ title: 'Debug' }} />
       </Stack.Navigator>
     </NavigationContainer>

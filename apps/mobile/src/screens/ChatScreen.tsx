@@ -13,6 +13,8 @@ import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
+import * as NetworkService from '../services/NetworkService';
+// NetworkService used for sendToPeer
 
 type ChatRoute = RouteProp<RootStackParamList, 'Chat'>;
 
@@ -47,7 +49,15 @@ export const ChatScreen: React.FC = () => {
     if (!messageText.trim()) return;
     const text = messageText.trim();
     setMessageText('');
-    await VorynBridge.sendMessage(contactPubkeyHex, text);
+
+    // Store locally first
+    const messageId = await VorynBridge.sendMessage(contactPubkeyHex, text);
+
+    // Send via relay if connected
+    if (NetworkService.getStatus() === 'connected') {
+      NetworkService.sendToPeer(contactPubkeyHex, text, messageId);
+    }
+
     await loadMessages();
   };
 
