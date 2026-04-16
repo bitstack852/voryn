@@ -13,6 +13,7 @@ import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
+import * as NetworkService from '../services/NetworkService';
 
 type ChatRoute = RouteProp<RootStackParamList, 'Chat'>;
 
@@ -43,11 +44,32 @@ export const ChatScreen: React.FC = () => {
     return () => clearInterval(interval);
   }, [loadMessages]);
 
+  // Listen for incoming messages from the relay
+  useEffect(() => {
+    const unsubscribe = NetworkService.onMessage((from, payload, messageId) => {
+      if (from === contactPubkeyHex) {
+        // Received a message from this contact — store it locally
+        VorynBridge.receiveMessage(contactPubkeyHex, payload, messageId).then(() => {
+          loadMessages();
+        });
+      }
+    });
+    return unsubscribe;
+  }, [contactPubkeyHex, loadMessages]);
+
   const handleSend = async () => {
     if (!messageText.trim()) return;
     const text = messageText.trim();
     setMessageText('');
-    await VorynBridge.sendMessage(contactPubkeyHex, text);
+
+    // Store locally first
+    const messageId = await VorynBridge.sendMessage(contactPubkeyHex, text);
+
+    // Send via relay if connected
+    if (NetworkService.getStatus() === 'connected') {
+      NetworkService.sendToPeer(contactPubkeyHex, text, messageId);
+    }
+
     await loadMessages();
   };
 

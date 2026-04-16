@@ -375,6 +375,39 @@ export async function sendMessage(
   return messageId;
 }
 
+/**
+ * Receive a message from the relay (called by NetworkService).
+ */
+export async function receiveMessage(
+  senderPubkeyHex: string,
+  plaintext: string,
+  messageId: string,
+): Promise<void> {
+  const identity = await loadIdentity();
+  if (!identity) return;
+
+  const conversationId = [identity.publicKeyHex, senderPubkeyHex].sort().join(':');
+
+  // Don't store duplicates
+  const allMessages = await loadMessagesFromStorage();
+  if (allMessages.some((m) => m.messageId === messageId)) {
+    return;
+  }
+
+  const message: StoredMessage = {
+    messageId,
+    conversationId,
+    senderPubkeyHex,
+    plaintext,
+    timestamp: Date.now(),
+    status: 'delivered',
+    isMine: false,
+  };
+
+  allMessages.push(message);
+  await saveMessagesToStorage(allMessages);
+}
+
 export async function getMessages(
   conversationId: string,
   _limit: number = 50,
