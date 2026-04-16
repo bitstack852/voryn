@@ -14,6 +14,7 @@ import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
 import * as NetworkService from '../services/NetworkService';
+// NetworkService used for sendToPeer
 
 type ChatRoute = RouteProp<RootStackParamList, 'Chat'>;
 
@@ -43,19 +44,6 @@ export const ChatScreen: React.FC = () => {
     const interval = setInterval(loadMessages, 2000);
     return () => clearInterval(interval);
   }, [loadMessages]);
-
-  // Listen for incoming messages from the relay
-  useEffect(() => {
-    const unsubscribe = NetworkService.onMessage((from, payload, messageId) => {
-      if (from === contactPubkeyHex) {
-        // Received a message from this contact — store it locally
-        VorynBridge.receiveMessage(contactPubkeyHex, payload, messageId).then(() => {
-          loadMessages();
-        });
-      }
-    });
-    return unsubscribe;
-  }, [contactPubkeyHex, loadMessages]);
 
   const handleSend = async () => {
     if (!messageText.trim()) return;
