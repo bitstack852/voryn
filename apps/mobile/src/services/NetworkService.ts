@@ -11,7 +11,7 @@ import * as VorynBridge from './VorynBridge';
 // Bootstrap peer multiaddrs.
 // Update the /p2p/<PeerId> component after re-deploying the bootstrap binary.
 const BOOTSTRAP_PEERS: string[] = [
-  // '/dns4/boot1.voryn.bitstack.website/tcp/4001/p2p/<LIBP2P_PEER_ID>',
+  '/dns4/boot1.voryn.bitstack.website/tcp/4001/p2p/12D3KooWMnagsbtuh6ytx5VWUPDhq9BePidVwmpEU7GG9ZHTnv3X',
 ];
 
 const POLL_INTERVAL_MS = 500;
