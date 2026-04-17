@@ -1,6 +1,6 @@
 # Development Status
 
-Last updated: 2026-04-17 (end of session 5)
+Last updated: 2026-04-17 (end of session 6)
 
 ## Project Overview
 
@@ -173,6 +173,20 @@ Root cause found and fixed: `RCTModuleProviders.mm` codegen generates an empty `
 
 Fix: Podfile `post_install` hook patches `RCTModuleProviders.mm` after codegen to inject `@"VorynCore": @"VorynCoreModule"`.
 
+### Session 6: E2E Encryption Wired
+
+- **3 new C FFI functions** — `voryn_encrypt_message`, `voryn_decrypt_message`, `voryn_peer_id_from_public_key`
+- **Encryption algorithm** — DH (X25519 via Ed25519 conversion) + KDF + XSalsa20-Poly1305 + Ed25519 signature over nonce+ciphertext
+- **Wire format** — JSON envelope `{v, from, nonce, ct, sig}` hex-encoded, sent as raw bytes over libp2p
+- **`voryn_peer_id_from_public_key`** — derives libp2p PeerId deterministically from a contact's 32-byte Ed25519 public key; exposed via `peer_id_from_ed25519_public_key` in `voryn-network`
+- **`VorynBridge.sendMessage`** — now encrypts, derives recipient PeerId, and sends via P2P; marks status `sent` on success, `failed` on error (replaces fake 500ms timeout)
+- **`NetworkService.decryptAndStore`** — decrypts inbound envelopes, verifies sender signature, stores plaintext via `VorynBridge.receiveMessage`
+- **TurboModule spec updated** — 3 new methods in `NativeVorynCore.ts`; codegen regenerated `VorynCoreSpec.h` on pod install
+- **Bootstrap still connected** — peers: 1 confirmed after rebuild
+
+#### What was shelved
+- Android bridge — deferred indefinitely
+
 ### Session 5: Rust Bridge Live + Bootstrap Connected
 
 **All goals achieved this session:**
@@ -231,12 +245,12 @@ Fix: Podfile `post_install` hook patches `RCTModuleProviders.mm` after codegen t
 
 | Task | Effort | Status |
 |------|--------|--------|
-| Wire `encrypt_for_peer`/`decrypt_from_peer` into `voryn_send_message` FFI | 4 hours | **Next — app-layer E2E encryption missing** |
-| Wire Double Ratchet session to message send/receive | 1 day | Rust code exists |
-| Implement X3DH initial key agreement between two devices | 1 day | Rust code exists |
-| Implement delivery ACK protocol | 4 hours | Protocol defined |
-| Implement offline message queue (store-and-forward) | 4 hours | Queue code exists |
-| Test full flow: Phone A → encrypt → P2P → decrypt → Phone B | 2 hours | Not started |
+| Wire `encrypt_for_peer`/`decrypt_from_peer` into send/receive path | 4 hours | ✅ Done (Session 6) |
+| Wire Double Ratchet session to message send/receive | 1 day | Rust code exists — post-MVP |
+| Implement X3DH initial key agreement between two devices | 1 day | Rust code exists — post-MVP |
+| Implement delivery ACK protocol | 4 hours | Protocol defined — post-MVP |
+| Implement offline message queue (store-and-forward) | 4 hours | Queue code exists — post-MVP |
+| Test full flow: Phone A → encrypt → P2P → decrypt → Phone B | 2 hours | **Next — requires two devices** |
 
 ### Phase C: Android Rust Bridge
 
@@ -292,7 +306,7 @@ Fix: Podfile `post_install` hook patches `RCTModuleProviders.mm` after codegen t
 5. Phase E: Group + Advanced       ← Feature expansion
 ```
 
-**Estimated time to MVP (Phases A+B+D): 1-2 focused sessions** (Phase A is largely done)
+**Estimated time to MVP (Phases A+B+D): 1 focused session + two-device testing** (encryption done, P2P done, needs real device-to-device verification then distribution)
 
 ---
 
