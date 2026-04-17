@@ -6,13 +6,15 @@ import * as VorynBridge from './src/services/VorynBridge';
 
 const App: React.FC = () => {
   useEffect(() => {
-    // Global message handler — stores ALL incoming messages regardless
-    // of which screen is active
     const unsubscribe = NetworkService.onMessage(
       async (from: string, payload: string, messageId: string) => {
         console.log('[App] Received message from', from.slice(0, 16));
         await VorynBridge.receiveMessage(from, payload, messageId);
       },
+    );
+
+    NetworkService.connect().catch((e) =>
+      console.warn('[App] P2P connect failed:', e),
     );
 
     return () => {
