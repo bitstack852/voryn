@@ -1,6 +1,6 @@
 # Development Status
 
-Last updated: 2026-04-16 (end of session 3)
+Last updated: 2026-04-17 (end of session 4)
 
 ## Project Overview
 
@@ -98,10 +98,11 @@ Messages → Stored locally in AsyncStorage
 
 ```
 React Native (TypeScript)
-  → NativeModules.VorynCore (Objective-C)
-    → voryn_core.h (C FFI)
-      → libvoryn_core.a (22MB static Rust library)
-        → sodiumoxide (libsodium) Ed25519
+  → TurboModuleRegistry.get('VorynCore')  ← changed from NativeModules in session 4
+    → VorynCoreModule.mm (ObjC++ TurboModule)
+      → voryn_core.h (C FFI)
+        → libvoryn_core.a (22MB static Rust library, gitignored — build locally)
+          → sodiumoxide (libsodium) Ed25519
 ```
 
 ### Bridge Layer (`crates/voryn-core/src/bridge.rs`)
@@ -163,6 +164,107 @@ All Rust code compiles clean on macOS (`cargo check --workspace` — 0 errors).
 - Bootstrap connection verified from app
 - VorynBridge.ts with Rust/JS fallback pattern
 - C FFI layer for Rust ↔ Objective-C ↔ React Native
+
+### Session 4: TurboModule Migration — INCOMPLETE (P2P bridge still broken)
+
+**The core problem: `TurboModuleRegistry.get('VorynCore')` always returns null — the Rust bridge never loads.**
+
+#### Root Cause Identified
+React Native 0.85 uses **bridgeless new architecture** by default. In this mode:
+- `NativeModules.VorynCore` is always `undefined` (legacy bridge is gone)
+- `TurboModuleRegistry.get('VorynCore')` returns null because the module was never wired into the TurboModule system
+- Every "connection" since session 2 was the JS fallback in `VorynBridge.ts` — no real Rust was running
+
+#### Everything We Attempted (and why each failed)
+
+**Attempt 1 — Disable new architecture in Podfile:**
+```ruby
+use_react_native!(:new_arch_enabled => false)
+```
+Result: **Ignored.** RN 0.85 has removed old arch support entirely. Pod install still shows "Configuring the target with the New Architecture".
+
+**Attempt 2 — Switch from NativeModules to TurboModuleRegistry:**
+```typescript
+// VorynBridge.ts — changed from:
+const { VorynCore } = NativeModules;
+// to:
+const VorynCore = TurboModuleRegistry.get<any>('VorynCore');
+```
+Result: **Necessary but not sufficient.** Still null because the module wasn't registered with the TurboModule system.
+
+**Attempt 3 — Add codegenConfig + NativeVorynCore.ts spec:**
+- Created `apps/mobile/src/native/NativeVorynCore.ts` (TurboModule spec)
+- Added `codegenConfig` block to `apps/mobile/package.json`
+- Pod install ran codegen and generated:
+  - `NativeVorynCore.h` (protocol + JSI class declarations)
+  - `RCTModuleProviders.mm` (module provider registry)
+  - `RCTAppDependencyProvider.mm` (bridgeless dependency provider)
+- Updated `VorynCoreModule.m` to implement `NativeVorynCoreSpec` protocol under `#ifdef RCT_NEW_ARCH_ENABLED`
+Result: **Still null.** Because `VorynCoreModule.m` was NOT IN THE XCODE PROJECT SOURCES — it was never compiled.
+
+**Attempt 4 — Add VorynCoreModule to Xcode project + rename to .mm:**
+- Discovered: `project.pbxproj` Sources build phase only had `AppDelegate.swift` — `VorynCoreModule.m` was a loose file never compiled
+- Renamed `VorynCoreModule.m` → `VorynCoreModule.mm` (ObjC++ required for C++ TurboModule types)
+- Added `getTurboModule:` implementation:
+  ```objc
+  #ifdef RCT_NEW_ARCH_ENABLED
+  - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:(const facebook::react::ObjCTurboModule::InitParams &)params {
+    return std::make_shared<facebook::react::NativeVorynCoreSpecJSI>(params);
+  }
+  #endif
+  ```
+- Added `VorynCoreModule.mm` to `project.pbxproj` PBXFileReference, PBXBuildFile, Voryn group, and PBXSourcesBuildPhase
+- Build **SUCCEEDED** — but `TurboModuleRegistry.get('VorynCore')` still returns null at runtime
+
+#### Current State After Session 4
+- `VorynCoreModule.mm` is now compiled and linked ✓
+- Codegen spec `NativeVorynCore.ts` exists ✓
+- `getTurboModule` implemented ✓
+- `TurboModuleRegistry` used in JS ✓
+- **Bridge is still null at runtime** ✗
+
+#### What to Investigate in Session 5
+
+**1. Check what `RCTAppDependencyProvider.mm` actually contains.**
+This is the generated file that the bridgeless runtime uses to resolve TurboModules. If VorynCore isn't listed in it, the module will never be found regardless of everything else.
+```bash
+cat ~/Documents/GitHub/voryn/apps/mobile/ios/build/generated/ios/ReactAppDependencyProvider/RCTAppDependencyProvider.mm
+```
+
+**2. Check if `RCT_NEW_ARCH_ENABLED` is actually defined during compilation.**
+The `getTurboModule` and protocol conformance are inside `#ifdef RCT_NEW_ARCH_ENABLED`. If this macro isn't defined, the module falls back to the legacy interface — which doesn't work in bridgeless mode.
+```bash
+# In Xcode build log, search for: RCT_NEW_ARCH_ENABLED
+# Or check the generated xcconfig:
+cat ~/Documents/GitHub/voryn/apps/mobile/ios/Pods/Target\ Support\ Files/Pods-Voryn/Pods-Voryn.debug.xcconfig | grep NEW_ARCH
+```
+
+**3. Try packaging VorynCoreModule as a local pod.**
+The most reliable way to make RN 0.85 new arch recognize a TurboModule is to expose it as a CocoaPod with its own podspec. This makes pod install fully handle the codegen and registration automatically.
+- Create `apps/mobile/ios/VorynCoreModule.podspec`
+- Reference it in Podfile: `pod 'VorynCoreModule', path: './ios/VorynCore'`
+- Let pod install wire it into `RCTAppDependencyProvider` the same way third-party libraries do
+
+**4. Verify `NativeVorynCoreSpecJSI` class exists in compiled headers.**
+```bash
+grep -r "NativeVorynCoreSpecJSI" ~/Documents/GitHub/voryn/apps/mobile/ios/build/generated/
+```
+If it doesn't exist, the `getTurboModule` method silently fails to link and the macro guard may need to be different.
+
+**5. Check AppDelegate.swift wiring.**
+In RN 0.85 bridgeless, `AppDelegate.swift` must use `RCTDefaultReactNativeFactoryDelegate` (not the old `RCTAppDelegate`). If the delegate isn't set up for new arch, module resolution fails silently.
+```bash
+cat ~/Documents/GitHub/voryn/apps/mobile/ios/Voryn/AppDelegate.swift
+```
+
+#### Important Notes for Session 5
+- `libvoryn_core.a` is gitignored — it exists on the Mac at `ios/VorynRust/libvoryn_core.a` (22MB, built locally). Do NOT try to rebuild it unless the Rust source changes.
+- All changes are on `main` branch — always build from `main`
+- The bootstrap node IS live and reachable (verified with `nc -zv boot1.voryn.bitstack.website 4001`)
+- The JS fallback path works — identities, contacts, and messages all function — just no real crypto or P2P
+- Build command: `xcodebuild -workspace ios/Voryn.xcworkspace -scheme Voryn -configuration Debug -destination 'platform=iOS,id=00008101-001C4D8C2251001E' -derivedDataPath /tmp/voryn-build build`
+- Install command: `xcrun devicectl device install app /tmp/voryn-build/Build/Products/Debug-iphoneos/Voryn.app --device 00008101-001C4D8C2251001E`
+- Debug tap "Test Rust Bridge (hello)" — should show real message without "(JS fallback)" when fixed
 
 ### Session 3: P2P Networking Implementation
 - Re-enabled libp2p in `voryn-network` (was disabled pending Cargo.lock)
