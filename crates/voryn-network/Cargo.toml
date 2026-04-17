@@ -8,6 +8,7 @@ description = "P2P networking layer for Voryn — libp2p DHT, transport, discove
 
 [dependencies]
 libp2p.workspace = true
+hickory-resolver = "0.24"
 futures.workspace = true
 rand.workspace = true
 tokio.workspace = true
