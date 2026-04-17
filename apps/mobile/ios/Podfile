@@ -30,7 +30,25 @@ target 'Voryn' do
       installer,
       config[:reactNativePath],
       :mac_catalyst_enabled => false,
-      # :ccache_enabled => true
     )
+
+    # Patch codegen-generated RCTModuleProviders.mm to register VorynCoreModule.
+    # RN 0.85 codegen processes the TypeScript spec but does not auto-populate
+    # moduleMapping for app-level modules — only for pods with install_modules_dependencies.
+    # This hook re-applies the patch on every pod install.
+    module_providers_path = File.join(__dir__, 'build/generated/ios/ReactCodegen/RCTModuleProviders.mm')
+    if File.exist?(module_providers_path)
+      content = File.read(module_providers_path)
+      unless content.include?('@"VorynCore"')
+        content.gsub!(
+          'NSDictionary<NSString *, NSString *> * moduleMapping = @{',
+          "NSDictionary<NSString *, NSString *> * moduleMapping = @{\n      @\"VorynCore\": @\"VorynCoreModule\","
+        )
+        File.write(module_providers_path, content)
+        Pod::UI.puts '[VorynCore] Patched RCTModuleProviders.mm — VorynCoreModule registered.'
+      end
+    else
+      Pod::UI.warn '[VorynCore] RCTModuleProviders.mm not found — run pod install again after first codegen pass.'
+    end
   end
 end
