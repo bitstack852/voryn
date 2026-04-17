@@ -6,9 +6,9 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { NativeModules, Platform } from 'react-native';
+import { TurboModuleRegistry } from 'react-native';
 
-const { VorynCore } = NativeModules;
+const VorynCore = TurboModuleRegistry.get<any>('VorynCore');
 const hasRustBridge = VorynCore != null;
 
 // ── Types ─────────────────────────────────────────────────────────

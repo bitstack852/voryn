@@ -1,7 +1,12 @@
 #import <React/RCTBridgeModule.h>
 #import "voryn_core.h"
 
+#ifdef RCT_NEW_ARCH_ENABLED
+#import <ReactCodegen/VorynCoreSpec.h>
+@interface VorynCoreModule : NSObject <NativeVorynCoreSpecSpec>
+#else
 @interface VorynCoreModule : NSObject <RCTBridgeModule>
+#endif
 @end
 
 @implementation VorynCoreModule
@@ -87,5 +92,12 @@ RCT_EXPORT_METHOD(nodeStatus:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseR
   voryn_free_string(result);
   resolve(json);
 }
+
+#ifdef RCT_NEW_ARCH_ENABLED
+- (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:
+    (const facebook::react::ObjCTurboModule::InitParams &)params {
+  return std::make_shared<facebook::react::NativeVorynCoreSpecSpecJSI>(params);
+}
+#endif
 
 @end
