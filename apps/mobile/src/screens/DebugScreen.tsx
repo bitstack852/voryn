@@ -35,6 +35,8 @@ export const DebugScreen: React.FC = () => {
     };
     load();
 
+    // Show any errors that fired before this screen was open
+    NetworkService.getRecentErrors().forEach((msg) => addLog(`NET ERROR: ${msg}`));
     const unsubError = NetworkService.onError((msg) => addLog(`NET ERROR: ${msg}`));
     return () => { unsubError(); };
   }, []);

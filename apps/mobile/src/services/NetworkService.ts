@@ -27,6 +27,7 @@ let connectedPeers: Set<string> = new Set();
 let messageHandlers: MessageHandler[] = [];
 let peerConnectHandlers: PeerHandler[] = [];
 let errorHandlers: ErrorHandler[] = [];
+let recentErrors: string[] = [];
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Public API ────────────────────────────────────────────────────
@@ -63,6 +64,11 @@ export function onPeerConnected(handler: PeerHandler): () => void {
 export function onError(handler: ErrorHandler): () => void {
   errorHandlers.push(handler);
   return () => { errorHandlers = errorHandlers.filter((h) => h !== handler); };
+}
+
+/** Return buffered errors (persisted even before any handler subscribes). */
+export function getRecentErrors(): string[] {
+  return [...recentErrors];
 }
 
 /**
@@ -175,10 +181,13 @@ function handleEvent(event: VorynBridge.NetworkEvent): void {
       }
       break;
 
-    case 'error':
-      console.warn('[Network] Error event:', event.message);
-      for (const h of errorHandlers) h(event.message ?? 'Unknown network error');
+    case 'error': {
+      const errMsg = event.message ?? 'Unknown network error';
+      console.warn('[Network] Error event:', errMsg);
+      recentErrors = [...recentErrors.slice(-19), errMsg];
+      for (const h of errorHandlers) h(errMsg);
       break;
+    }
   }
 }
 
