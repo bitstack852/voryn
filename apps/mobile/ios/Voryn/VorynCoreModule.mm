@@ -2,7 +2,7 @@
 #import "voryn_core.h"
 
 #ifdef RCT_NEW_ARCH_ENABLED
-#import <ReactCodegen/NativeVorynCore.h>
+#import "NativeVorynCore.h"
 @interface VorynCoreModule : NSObject <NativeVorynCoreSpec>
 #else
 @interface VorynCoreModule : NSObject <RCTBridgeModule>

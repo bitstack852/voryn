@@ -270,6 +270,7 @@
 				ENABLE_BITCODE = NO;
 				"HEADER_SEARCH_PATHS[arch=*]" = (
 					"$(inherited)",
+					"\"$(SRCROOT)/build/generated/ios/ReactCodegen\"",
 					"\"${PODS_ROOT}/Headers/Public\"",
 					"\"${PODS_ROOT}/Headers/Public/FBLazyVector\"",
 					"\"${PODS_ROOT}/Headers/Public/RCTDeprecation\"",
@@ -388,6 +389,10 @@
 				LIBRARY_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(PROJECT_DIR)/VorynRust",
+				);
+				"HEADER_SEARCH_PATHS[arch=*]" = (
+					"$(inherited)",
+					"\"$(SRCROOT)/build/generated/ios/ReactCodegen\"",
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_LDFLAGS = (
