@@ -264,13 +264,15 @@ export type NetworkEventType =
   | 'discovered'
   | 'connected'
   | 'disconnected'
-  | 'message';
+  | 'message'
+  | 'error';
 
 export interface NetworkEvent {
   type: NetworkEventType;
   peer_id: string;
   addrs?: string[];      // present on 'started'
   data_hex?: string;     // present on 'message'
+  message?: string;      // present on 'error'
 }
 
 // ── Contacts ──────────────────────────────────────────────────────

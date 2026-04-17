@@ -34,6 +34,11 @@ export const DebugScreen: React.FC = () => {
       addLog('Loaded identity and contacts');
     };
     load();
+
+    // Show any errors that fired before this screen was open
+    NetworkService.getRecentErrors().forEach((msg) => addLog(`NET ERROR: ${msg}`));
+    const unsubError = NetworkService.onError((msg) => addLog(`NET ERROR: ${msg}`));
+    return () => { unsubError(); };
   }, []);
 
   const handleShareKey = async () => {
@@ -49,17 +54,41 @@ export const DebugScreen: React.FC = () => {
     }
   };
 
+  const handleTestRustBridge = async () => {
+    addLog('Calling Rust hello...');
+    try {
+      const msg = await VorynBridge.helloFromRust();
+      addLog(`Rust bridge: ${msg}`);
+    } catch (e) {
+      addLog(`Rust bridge error: ${e}`);
+    }
+  };
+
   const handleTestBootstrap = async () => {
     addLog('Testing bootstrap connection...');
     try {
       const info = NetworkService.getBootstrapInfo();
-      addLog(`Bootstrap: ${info.host}:${info.port}`);
+      addLog(`Bootstrap peers: ${info.peers.length}, connected: ${info.connected}`);
+      info.peers.forEach((p) => addLog(`  ${p}`));
       await NetworkService.connect();
       const status = NetworkService.getStatus();
       const peers = NetworkService.getPeerCount();
+      const peerId = NetworkService.getLocalPeerId();
       addLog(`Network status: ${status}, peers: ${peers}`);
+      addLog(`Local peer ID: ${peerId ?? 'null'}`);
     } catch (e) {
       addLog(`Bootstrap error: ${e}`);
+    }
+  };
+
+  const handleNetworkStatus = async () => {
+    addLog('Checking network status via Rust...');
+    try {
+      const s = await VorynBridge.getNetworkStatus();
+      addLog(`Status: ${s.status}, peers: ${s.peerCount}`);
+      addLog(`Peer ID: ${s.peerId ?? 'null'}`);
+    } catch (e) {
+      addLog(`Status error: ${e}`);
     }
   };
 
@@ -137,8 +166,14 @@ export const DebugScreen: React.FC = () => {
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Actions</Text>
+        <TouchableOpacity style={styles.actionButton} onPress={handleTestRustBridge}>
+          <Text style={styles.actionButtonText}>Test Rust Bridge (hello)</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.actionButton} onPress={handleNetworkStatus}>
+          <Text style={styles.actionButtonText}>Check Network Status</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={handleTestBootstrap}>
-          <Text style={styles.actionButtonText}>Test Bootstrap Connection</Text>
+          <Text style={styles.actionButtonText}>Connect to Bootstrap</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={handleAddTestContact}>
           <Text style={styles.actionButtonText}>Add Test Contact</Text>

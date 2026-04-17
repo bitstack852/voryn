@@ -7,9 +7,15 @@ import * as VorynBridge from './src/services/VorynBridge';
 const App: React.FC = () => {
   useEffect(() => {
     const unsubscribe = NetworkService.onMessage(
-      async (from: string, payload: string, messageId: string) => {
+      async (from: string, dataHex: string, messageId: string) => {
         console.log('[App] Received message from', from.slice(0, 16));
-        await VorynBridge.receiveMessage(from, payload, messageId);
+        // Decode hex-encoded UTF-8 payload to plaintext
+        const bytes = new Uint8Array(dataHex.length / 2);
+        for (let i = 0; i < dataHex.length; i += 2) {
+          bytes[i / 2] = parseInt(dataHex.slice(i, i + 2), 16);
+        }
+        const plaintext = new TextDecoder().decode(bytes);
+        await VorynBridge.receiveMessage(from, plaintext, messageId);
       },
     );
 
