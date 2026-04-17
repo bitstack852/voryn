@@ -17,7 +17,7 @@ const BOOTSTRAP_PEERS: string[] = [
 const POLL_INTERVAL_MS = 500;
 
 type NetworkStatus = 'disconnected' | 'connecting' | 'connected';
-type MessageHandler = (fromPeerId: string, dataHex: string) => void;
+type MessageHandler = (fromPeerId: string, dataHex: string, messageId: string) => void;
 type PeerHandler = (peerId: string) => void;
 
 let networkStatus: NetworkStatus = 'disconnected';
@@ -162,7 +162,8 @@ function handleEvent(event: VorynBridge.NetworkEvent): void {
 
     case 'message':
       if (event.data_hex) {
-        for (const h of messageHandlers) h(event.peer_id, event.data_hex);
+        const msgId = generateMessageId();
+        for (const h of messageHandlers) h(event.peer_id, event.data_hex, msgId);
       }
       break;
   }
