@@ -361,6 +361,10 @@
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
+					"-framework SystemConfiguration",
+					"-framework CFNetwork",
+					"-framework Security",
+					"-framework CoreFoundation",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = Voryn;
@@ -399,6 +403,10 @@
 					"$(inherited)",
 					"-ObjC",
 					"-lc++",
+					"-framework SystemConfiguration",
+					"-framework CFNetwork",
+					"-framework Security",
+					"-framework CoreFoundation",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "org.reactjs.native.example.$(PRODUCT_NAME:rfc1034identifier)";
 				PRODUCT_NAME = Voryn;
