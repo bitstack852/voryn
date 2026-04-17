@@ -1,12 +1,8 @@
 #import <React/RCTBridgeModule.h>
 #import "voryn_core.h"
+#import "VorynCoreSpec/VorynCoreSpec.h"
 
-#ifdef RCT_NEW_ARCH_ENABLED
-#import "NativeVorynCore.h"
 @interface VorynCoreModule : NSObject <NativeVorynCoreSpec>
-#else
-@interface VorynCoreModule : NSObject <RCTBridgeModule>
-#endif
 @end
 
 @implementation VorynCoreModule
@@ -54,7 +50,6 @@ RCT_EXPORT_METHOD(sendMessage:(NSString *)peerId
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject) {
   dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-    // Decode hex string to raw bytes.
     NSUInteger hexLen = [dataHex length];
     NSMutableData* data = [NSMutableData dataWithCapacity:hexLen / 2];
     for (NSUInteger i = 0; i < hexLen; i += 2) {
@@ -93,10 +88,8 @@ RCT_EXPORT_METHOD(nodeStatus:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseR
   resolve(json);
 }
 
-#ifdef RCT_NEW_ARCH_ENABLED
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:(const facebook::react::ObjCTurboModule::InitParams &)params {
   return std::make_shared<facebook::react::NativeVorynCoreSpecJSI>(params);
 }
-#endif
 
 @end
