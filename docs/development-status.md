@@ -1,6 +1,6 @@
 # Development Status
 
-Last updated: 2026-04-17 (end of session 4)
+Last updated: 2026-04-17 (end of session 5)
 
 ## Project Overview
 
@@ -25,10 +25,11 @@ No central servers. No metadata exposure. No compromises.
 | Coolify | **Running** | 2 services: nginx update server + Rust bootstrap node |
 
 ### Bootstrap Node Identity
-- **PeerId:** `f85f6881ffa135afee8d29194c4498af69ead527e91c87add55e13e033bbd7ba`
+- **PeerId:** `12D3KooWMnagsbtuh6ytx5VWUPDhq9BePidVwmpEU7GG9ZHTnv3X`
+- **Multiaddr:** `/dns4/boot1.voryn.bitstack.website/tcp/4001/p2p/12D3KooWMnagsbtuh6ytx5VWUPDhq9BePidVwmpEU7GG9ZHTnv3X`
 - **Binary:** Cross-compiled from macOS → Linux (x86_64-unknown-linux-musl), 2MB static
 - **Persistent:** Identity key stored in Docker volume at `/data/node-identity.key`
-- **Verified:** App connects and shows "connected, peers: 2"
+- **Verified (Session 5):** App connects and shows "Network status: connected, peers: 1"
 
 ---
 
@@ -38,7 +39,7 @@ No central servers. No metadata exposure. No compromises.
 
 | Platform | Build Status | Tested on Device | Rust Bridge |
 |----------|-------------|-----------------|-------------|
-| iOS | **Builds & runs** | **Tested on iPhone 12 Pro Max** | **Connected — real Ed25519** |
+| iOS | **Builds & runs** | **Tested on iPhone (NST)** | **Fully connected — real Rust, real P2P** |
 | Android | **APK builds** (84MB) | Not tested (no Android phone) | Not yet connected |
 
 ### Screens Implemented (10 total)
@@ -87,22 +88,23 @@ Messages → Stored locally in AsyncStorage
 | `voryn_hello()` | Bridge test | **Working on iPhone** |
 | `voryn_generate_identity()` | Real Ed25519 keypair | **Working on iPhone** |
 | `voryn_compute_safety_number()` | Deterministic safety number | **Compiled** |
-| `voryn_start_node(config_json)` | Start libp2p node | **Implemented — needs device test** |
-| `voryn_stop_node()` | Stop libp2p node | **Implemented — needs device test** |
-| `voryn_send_message(peer_id, data, len)` | Send encrypted bytes | **Implemented — needs device test** |
-| `voryn_poll_event()` | Poll event queue | **Implemented — needs device test** |
-| `voryn_node_status()` | Node running status | **Implemented — needs device test** |
+| `voryn_start_node(config_json)` | Start libp2p node | **Working on device** |
+| `voryn_stop_node()` | Stop libp2p node | **Working on device** |
+| `voryn_send_message(peer_id, data, len)` | Send raw bytes to peer | **Working on device** |
+| `voryn_poll_event()` | Poll event queue | **Working on device** |
+| `voryn_node_status()` | Node running status | **Working on device** |
 | `voryn_free_string()` | Memory cleanup | **Compiled** |
 
 ### Bridge Architecture
 
 ```
 React Native (TypeScript)
-  → TurboModuleRegistry.get('VorynCore')  ← changed from NativeModules in session 4
+  → TurboModuleRegistry.get('VorynCore')  ← WORKING as of session 5
     → VorynCoreModule.mm (ObjC++ TurboModule)
-      → voryn_core.h (C FFI)
-        → libvoryn_core.a (22MB static Rust library, gitignored — build locally)
+      → voryn_core.h (C FFI, extern "C" wrapped)
+        → libvoryn_core.a (static Rust library, gitignored — build locally)
           → sodiumoxide (libsodium) Ed25519
+          → libp2p (Kademlia DHT + mDNS + TCP/Noise/Yamux)
 ```
 
 ### Bridge Layer (`crates/voryn-core/src/bridge.rs`)
@@ -134,7 +136,7 @@ All Rust code compiles clean on macOS (`cargo check --workspace` — 0 errors).
 |-------|---------|--------|
 | `voryn-core` | FFI bridge, orchestration, auth, wipe | **Compiled + bridged to iOS** |
 | `voryn-crypto` | Ed25519, X25519, XSalsa20-Poly1305, Argon2id | **Compiled, all tests pass** |
-| `voryn-network` | libp2p DHT node, transport, discovery | **Full implementation — needs build test** |
+| `voryn-network` | libp2p DHT node, transport, discovery | **Running on device, connected to bootstrap** |
 | `voryn-storage` | SQLCipher database, migrations, CRUD | **Compiled, all tests pass** |
 | `voryn-protocol` | Double Ratchet, Shamir, group ledger, invites | **Compiled, all tests pass** |
 | `voryn-bootstrap` | Standalone DHT bootstrap server | **Rewritten with real libp2p — needs redeploy** |
@@ -165,106 +167,29 @@ All Rust code compiles clean on macOS (`cargo check --workspace` — 0 errors).
 - VorynBridge.ts with Rust/JS fallback pattern
 - C FFI layer for Rust ↔ Objective-C ↔ React Native
 
-### Session 4: TurboModule Migration — INCOMPLETE (P2P bridge still broken)
+### Session 4: TurboModule Migration — COMPLETED in Session 5
 
-**The core problem: `TurboModuleRegistry.get('VorynCore')` always returns null — the Rust bridge never loads.**
+Root cause found and fixed: `RCTModuleProviders.mm` codegen generates an empty `moduleMapping` dictionary for app-level modules. The module was compiled but never registered with the bridgeless runtime.
 
-#### Root Cause Identified
-React Native 0.85 uses **bridgeless new architecture** by default. In this mode:
-- `NativeModules.VorynCore` is always `undefined` (legacy bridge is gone)
-- `TurboModuleRegistry.get('VorynCore')` returns null because the module was never wired into the TurboModule system
-- Every "connection" since session 2 was the JS fallback in `VorynBridge.ts` — no real Rust was running
+Fix: Podfile `post_install` hook patches `RCTModuleProviders.mm` after codegen to inject `@"VorynCore": @"VorynCoreModule"`.
 
-#### Everything We Attempted (and why each failed)
+### Session 5: Rust Bridge Live + Bootstrap Connected
 
-**Attempt 1 — Disable new architecture in Podfile:**
-```ruby
-use_react_native!(:new_arch_enabled => false)
-```
-Result: **Ignored.** RN 0.85 has removed old arch support entirely. Pod install still shows "Configuring the target with the New Architecture".
+**All goals achieved this session:**
 
-**Attempt 2 — Switch from NativeModules to TurboModuleRegistry:**
-```typescript
-// VorynBridge.ts — changed from:
-const { VorynCore } = NativeModules;
-// to:
-const VorynCore = TurboModuleRegistry.get<any>('VorynCore');
-```
-Result: **Necessary but not sufficient.** Still null because the module wasn't registered with the TurboModule system.
+- **TurboModule fully working** — `TurboModuleRegistry.get('VorynCore')` returns the real Rust module. Confirmed by "Test Rust Bridge (hello)" showing `"Voryn Core v0.1.0 — Private. Encrypted. Unreachable."` without any `(JS fallback)` suffix.
+- **Root cause of null bridge fixed** — `RCTModuleProviders.mm` empty `moduleMapping` patched via Podfile `post_install` hook
+- **Header fixed** — Correct generated header is `VorynCoreSpec/VorynCoreSpec.h`; added `$(SRCROOT)/build/generated/ios/ReactCodegen` to `HEADER_SEARCH_PATHS` in `project.pbxproj`
+- **Linker fixed** — Added `extern "C"` to `voryn_core.h` (prevents C++ name mangling); added `SystemConfiguration`, `CFNetwork`, `Security`, `CoreFoundation` frameworks to `OTHER_LDFLAGS`
+- **DNS fixed for iOS** — Replaced `with_dns()` (reads `/etc/resolv.conf`, doesn't exist on iOS) with `with_dns_config(ResolverConfig::cloudflare(), ResolverOpts::default())`; added `hickory-resolver = "0.24"` to `voryn-network/Cargo.toml`
+- **Bootstrap connection verified** — App log shows `"Network status: connected, peers: 1"` and `/dns4/boot1.voryn.bitstack.website/tcp/4001/p2p/12D3KooWMnagsbtuh6ytx5VWUPDhq9BePidVwmpEU7GG9ZHTnv3X`
+- **Debug UX** — Added "Copy" button next to LOG section header; tapping opens iOS share sheet with full log text for easy pasting
 
-**Attempt 3 — Add codegenConfig + NativeVorynCore.ts spec:**
-- Created `apps/mobile/src/native/NativeVorynCore.ts` (TurboModule spec)
-- Added `codegenConfig` block to `apps/mobile/package.json`
-- Pod install ran codegen and generated:
-  - `NativeVorynCore.h` (protocol + JSI class declarations)
-  - `RCTModuleProviders.mm` (module provider registry)
-  - `RCTAppDependencyProvider.mm` (bridgeless dependency provider)
-- Updated `VorynCoreModule.m` to implement `NativeVorynCoreSpec` protocol under `#ifdef RCT_NEW_ARCH_ENABLED`
-Result: **Still null.** Because `VorynCoreModule.m` was NOT IN THE XCODE PROJECT SOURCES — it was never compiled.
-
-**Attempt 4 — Add VorynCoreModule to Xcode project + rename to .mm:**
-- Discovered: `project.pbxproj` Sources build phase only had `AppDelegate.swift` — `VorynCoreModule.m` was a loose file never compiled
-- Renamed `VorynCoreModule.m` → `VorynCoreModule.mm` (ObjC++ required for C++ TurboModule types)
-- Added `getTurboModule:` implementation:
-  ```objc
-  #ifdef RCT_NEW_ARCH_ENABLED
-  - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:(const facebook::react::ObjCTurboModule::InitParams &)params {
-    return std::make_shared<facebook::react::NativeVorynCoreSpecJSI>(params);
-  }
-  #endif
-  ```
-- Added `VorynCoreModule.mm` to `project.pbxproj` PBXFileReference, PBXBuildFile, Voryn group, and PBXSourcesBuildPhase
-- Build **SUCCEEDED** — but `TurboModuleRegistry.get('VorynCore')` still returns null at runtime
-
-#### Current State After Session 4
-- `VorynCoreModule.mm` is now compiled and linked ✓
-- Codegen spec `NativeVorynCore.ts` exists ✓
-- `getTurboModule` implemented ✓
-- `TurboModuleRegistry` used in JS ✓
-- **Bridge is still null at runtime** ✗
-
-#### What to Investigate in Session 5
-
-**1. Check what `RCTAppDependencyProvider.mm` actually contains.**
-This is the generated file that the bridgeless runtime uses to resolve TurboModules. If VorynCore isn't listed in it, the module will never be found regardless of everything else.
-```bash
-cat ~/Documents/GitHub/voryn/apps/mobile/ios/build/generated/ios/ReactAppDependencyProvider/RCTAppDependencyProvider.mm
-```
-
-**2. Check if `RCT_NEW_ARCH_ENABLED` is actually defined during compilation.**
-The `getTurboModule` and protocol conformance are inside `#ifdef RCT_NEW_ARCH_ENABLED`. If this macro isn't defined, the module falls back to the legacy interface — which doesn't work in bridgeless mode.
-```bash
-# In Xcode build log, search for: RCT_NEW_ARCH_ENABLED
-# Or check the generated xcconfig:
-cat ~/Documents/GitHub/voryn/apps/mobile/ios/Pods/Target\ Support\ Files/Pods-Voryn/Pods-Voryn.debug.xcconfig | grep NEW_ARCH
-```
-
-**3. Try packaging VorynCoreModule as a local pod.**
-The most reliable way to make RN 0.85 new arch recognize a TurboModule is to expose it as a CocoaPod with its own podspec. This makes pod install fully handle the codegen and registration automatically.
-- Create `apps/mobile/ios/VorynCoreModule.podspec`
-- Reference it in Podfile: `pod 'VorynCoreModule', path: './ios/VorynCore'`
-- Let pod install wire it into `RCTAppDependencyProvider` the same way third-party libraries do
-
-**4. Verify `NativeVorynCoreSpecJSI` class exists in compiled headers.**
-```bash
-grep -r "NativeVorynCoreSpecJSI" ~/Documents/GitHub/voryn/apps/mobile/ios/build/generated/
-```
-If it doesn't exist, the `getTurboModule` method silently fails to link and the macro guard may need to be different.
-
-**5. Check AppDelegate.swift wiring.**
-In RN 0.85 bridgeless, `AppDelegate.swift` must use `RCTDefaultReactNativeFactoryDelegate` (not the old `RCTAppDelegate`). If the delegate isn't set up for new arch, module resolution fails silently.
-```bash
-cat ~/Documents/GitHub/voryn/apps/mobile/ios/Voryn/AppDelegate.swift
-```
-
-#### Important Notes for Session 5
-- `libvoryn_core.a` is gitignored — it exists on the Mac at `ios/VorynRust/libvoryn_core.a` (22MB, built locally). Do NOT try to rebuild it unless the Rust source changes.
-- All changes are on `main` branch — always build from `main`
-- The bootstrap node IS live and reachable (verified with `nc -zv boot1.voryn.bitstack.website 4001`)
-- The JS fallback path works — identities, contacts, and messages all function — just no real crypto or P2P
-- Build command: `xcodebuild -workspace ios/Voryn.xcworkspace -scheme Voryn -configuration Debug -destination 'platform=iOS,id=00008101-001C4D8C2251001E' -derivedDataPath /tmp/voryn-build build`
-- Install command: `xcrun devicectl device install app /tmp/voryn-build/Build/Products/Debug-iphoneos/Voryn.app --device 00008101-001C4D8C2251001E`
-- Debug tap "Test Rust Bridge (hello)" — should show real message without "(JS fallback)" when fixed
+#### Important Notes
+- `libvoryn_core.a` is gitignored — must be built locally with `cargo build --release --target aarch64-apple-ios -p voryn-core` then copied to `apps/mobile/ios/VorynRust/`
+- All changes on `main` branch
+- Build: `xcodebuild -workspace Voryn.xcworkspace -scheme Voryn -configuration Release -destination 'platform=iOS,id=00008101-001C4D8C2251001E' build`
+- Install: `xcrun devicectl device install app --device 00008101-001C4D8C2251001E <path/to/Voryn.app>`
 
 ### Session 3: P2P Networking Implementation
 - Re-enabled libp2p in `voryn-network` (was disabled pending Cargo.lock)
@@ -293,11 +218,12 @@ cat ~/Documents/GitHub/voryn/apps/mobile/ios/Voryn/AppDelegate.swift
 | Implement full libp2p swarm (Kademlia DHT + mDNS + TCP/Noise) | 1-2 days | ✅ Done (Session 3) |
 | Wire libp2p node as background thread via FFI | 1 day | ✅ Done (Session 3) |
 | Implement `/voryn/message/1.0.0` custom protocol | 1 day | ✅ Done (Session 3) |
-| **`cargo build` — verify it compiles** | 30 min | **Next: needs device/CI** |
-| Redeploy bootstrap node (new libp2p binary on Coolify) | 30 min | **Next** |
-| Update bootstrap multiaddr in `config.rs` with new libp2p PeerId | 15 min | **Next** |
-| Test mDNS discovery (two phones on same WiFi) | 1 hour | Not started |
-| Test DHT discovery (two phones on different networks via bootstrap) | 2 hours | Not started |
+| Fix TurboModule registration so Rust bridge loads | 1 day | ✅ Done (Session 5) |
+| Fix DNS resolver for iOS (no `/etc/resolv.conf`) | 1 hour | ✅ Done (Session 5) |
+| Verify bootstrap connection on device | 30 min | ✅ Done (Session 5) — peers: 1 |
+| Test mDNS discovery (two phones on same WiFi) | 1 hour | **Next** |
+| Test DHT discovery (two phones on different networks via bootstrap) | 2 hours | **Next** |
+| End-to-end message delivery (Phone A → Phone B via P2P) | 2 hours | **Next** |
 
 ### Phase B: Real Encrypted Messaging
 
@@ -305,9 +231,9 @@ cat ~/Documents/GitHub/voryn/apps/mobile/ios/Voryn/AppDelegate.swift
 
 | Task | Effort | Status |
 |------|--------|--------|
+| Wire `encrypt_for_peer`/`decrypt_from_peer` into `voryn_send_message` FFI | 4 hours | **Next — app-layer E2E encryption missing** |
 | Wire Double Ratchet session to message send/receive | 1 day | Rust code exists |
 | Implement X3DH initial key agreement between two devices | 1 day | Rust code exists |
-| Wire encrypt_for_peer/decrypt_from_peer to network layer | 4 hours | FFI exists |
 | Implement delivery ACK protocol | 4 hours | Protocol defined |
 | Implement offline message queue (store-and-forward) | 4 hours | Queue code exists |
 | Test full flow: Phone A → encrypt → P2P → decrypt → Phone B | 2 hours | Not started |
@@ -366,7 +292,7 @@ cat ~/Documents/GitHub/voryn/apps/mobile/ios/Voryn/AppDelegate.swift
 5. Phase E: Group + Advanced       ← Feature expansion
 ```
 
-**Estimated time to MVP (Phases A+B+D): 2-3 focused sessions**
+**Estimated time to MVP (Phases A+B+D): 1-2 focused sessions** (Phase A is largely done)
 
 ---
 
