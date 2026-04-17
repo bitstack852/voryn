@@ -121,6 +121,8 @@ pub async fn start_node(config: NodeConfig) -> Result<NodeHandle, NetworkError> 
         .with_tokio()
         .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)
         .map_err(|e| NetworkError::StartFailed(e.to_string()))?
+        .with_dns()
+        .map_err(|e| NetworkError::StartFailed(e.to_string()))?
         .with_behaviour(|key| {
             let peer_id = key.public().to_peer_id();
 
