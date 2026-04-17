@@ -8,6 +8,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::sync::{Mutex, OnceLock};
 
+use sodiumoxide::crypto::{secretbox, sign};
 use voryn_network::{NodeConfig, NodeEvent, NodeHandle};
 
 use crate::bridge;
@@ -208,12 +209,186 @@ pub extern "C" fn voryn_node_status() -> *const c_char {
     }
 }
 
+/// Encrypt a plaintext message for a peer.
+///
+/// Returns JSON `{"ok":true,"envelope_hex":"..."}` where `envelope_hex` is the
+/// hex of a JSON envelope containing `{v,from,nonce,ct,sig}`. Pass the returned
+/// `envelope_hex` directly to `voryn_send_message`.
+///
+/// On failure: `{"ok":false,"error":"..."}`.
+#[no_mangle]
+pub unsafe extern "C" fn voryn_encrypt_message(
+    plaintext: *const c_char,
+    our_secret_key_hex: *const c_char,
+    our_public_key_hex: *const c_char,
+    their_public_key_hex: *const c_char,
+) -> *const c_char {
+    let plaintext = match unsafe { CStr::from_ptr(plaintext) }.to_str() {
+        Ok(s) => s.to_owned(),
+        Err(_) => return error_json("Invalid UTF-8 in plaintext".into()),
+    };
+    let our_sk_hex = match unsafe { CStr::from_ptr(our_secret_key_hex) }.to_str() {
+        Ok(s) => s.to_owned(),
+        Err(_) => return error_json("Invalid UTF-8 in secret key".into()),
+    };
+    let our_pk_hex = match unsafe { CStr::from_ptr(our_public_key_hex) }.to_str() {
+        Ok(s) => s.to_owned(),
+        Err(_) => return error_json("Invalid UTF-8 in our public key".into()),
+    };
+    let their_pk_hex = match unsafe { CStr::from_ptr(their_public_key_hex) }.to_str() {
+        Ok(s) => s.to_owned(),
+        Err(_) => return error_json("Invalid UTF-8 in their public key".into()),
+    };
+
+    match encrypt_message_inner(&plaintext, &our_sk_hex, &our_pk_hex, &their_pk_hex) {
+        Ok(envelope_hex) => to_c_string(format!(r#"{{"ok":true,"envelope_hex":"{}"}}"#, envelope_hex)),
+        Err(e) => error_json(e),
+    }
+}
+
+/// Decrypt an envelope received from a peer.
+///
+/// `envelope_hex` is the value produced by `voryn_encrypt_message` on the sender.
+/// Returns JSON `{"ok":true,"plaintext":"...","sender_pk":"<64-char hex>"}` or
+/// `{"ok":false,"error":"..."}`.
+#[no_mangle]
+pub unsafe extern "C" fn voryn_decrypt_message(
+    envelope_hex: *const c_char,
+    our_secret_key_hex: *const c_char,
+) -> *const c_char {
+    let env_hex = match unsafe { CStr::from_ptr(envelope_hex) }.to_str() {
+        Ok(s) => s.to_owned(),
+        Err(_) => return error_json("Invalid UTF-8 in envelope".into()),
+    };
+    let our_sk_hex = match unsafe { CStr::from_ptr(our_secret_key_hex) }.to_str() {
+        Ok(s) => s.to_owned(),
+        Err(_) => return error_json("Invalid UTF-8 in secret key".into()),
+    };
+
+    match decrypt_message_inner(&env_hex, &our_sk_hex) {
+        Ok((plaintext, sender_pk)) => {
+            let escaped = serde_json::Value::String(plaintext).to_string();
+            to_c_string(format!(r#"{{"ok":true,"plaintext":{},"sender_pk":"{}"}}"#, escaped, sender_pk))
+        }
+        Err(e) => error_json(e),
+    }
+}
+
+/// Convert a 32-byte Ed25519 public key (hex) to a libp2p PeerId string.
+/// Returns an empty string on error.
+#[no_mangle]
+pub unsafe extern "C" fn voryn_peer_id_from_public_key(
+    public_key_hex: *const c_char,
+) -> *const c_char {
+    let pk_hex = match unsafe { CStr::from_ptr(public_key_hex) }.to_str() {
+        Ok(s) => s.to_owned(),
+        Err(_) => return to_c_string(String::new()),
+    };
+    let pk_bytes = match hex_decode(&pk_hex) {
+        Some(b) => b,
+        None => return to_c_string(String::new()),
+    };
+    match voryn_network::peer_id_from_ed25519_public_key(&pk_bytes) {
+        Some(peer_id) => to_c_string(peer_id),
+        None => to_c_string(String::new()),
+    }
+}
+
 /// Free a string returned by any voryn_ function.
 #[no_mangle]
 pub extern "C" fn voryn_free_string(s: *const c_char) {
     if !s.is_null() {
         unsafe { drop(CString::from_raw(s as *mut c_char)) };
     }
+}
+
+// ── Crypto helpers ────────────────────────────────────────────────
+
+fn encrypt_message_inner(
+    plaintext: &str,
+    our_sk_hex: &str,
+    our_pk_hex: &str,
+    their_pk_hex: &str,
+) -> Result<String, String> {
+    voryn_crypto::init().ok();
+
+    let our_sk_bytes = hex_decode(our_sk_hex).ok_or("Invalid secret key hex")?;
+    let their_pk_bytes = hex_decode(their_pk_hex).ok_or("Invalid their public key hex")?;
+
+    let our_sk = sign::SecretKey::from_slice(&our_sk_bytes)
+        .ok_or("Invalid secret key length")?;
+    let their_pk = sign::PublicKey::from_slice(&their_pk_bytes)
+        .ok_or("Invalid their public key length")?;
+
+    let shared = voryn_crypto::dh::compute_shared_secret(&our_sk, &their_pk)
+        .map_err(|e| format!("DH failed: {}", e))?;
+    let sym_key_bytes = voryn_crypto::kdf::derive_key(shared.as_bytes(), b"vorynmsg", 1)
+        .map_err(|e| format!("KDF failed: {}", e))?;
+    let sym_key = secretbox::Key::from_slice(&sym_key_bytes)
+        .ok_or("Invalid symmetric key")?;
+
+    let (nonce, ciphertext) = voryn_crypto::encryption::encrypt(plaintext.as_bytes(), &sym_key);
+
+    let mut to_sign = Vec::with_capacity(nonce.len() + ciphertext.len());
+    to_sign.extend_from_slice(&nonce);
+    to_sign.extend_from_slice(&ciphertext);
+    let signature = voryn_crypto::signing::sign_message(&to_sign, &our_sk);
+
+    let envelope = format!(
+        r#"{{"v":1,"from":"{}","nonce":"{}","ct":"{}","sig":"{}"}}"#,
+        our_pk_hex,
+        hex_encode(&nonce),
+        hex_encode(&ciphertext),
+        hex_encode(&signature),
+    );
+    Ok(hex_encode(envelope.as_bytes()))
+}
+
+fn decrypt_message_inner(
+    envelope_hex: &str,
+    our_sk_hex: &str,
+) -> Result<(String, String), String> {
+    voryn_crypto::init().ok();
+
+    let env_bytes = hex_decode(envelope_hex).ok_or("Invalid envelope hex")?;
+    let env_str = String::from_utf8(env_bytes).map_err(|_| "Envelope not UTF-8")?;
+    let env: serde_json::Value = serde_json::from_str(&env_str)
+        .map_err(|e| format!("Envelope JSON error: {}", e))?;
+
+    let sender_pk_hex = env["from"].as_str().ok_or("Missing 'from' field")?.to_string();
+    let nonce = hex_decode(env["nonce"].as_str().ok_or("Missing nonce")?)
+        .ok_or("Invalid nonce hex")?;
+    let ciphertext = hex_decode(env["ct"].as_str().ok_or("Missing ciphertext")?)
+        .ok_or("Invalid ciphertext hex")?;
+    let signature = hex_decode(env["sig"].as_str().ok_or("Missing signature")?)
+        .ok_or("Invalid signature hex")?;
+    let their_pk_bytes = hex_decode(&sender_pk_hex).ok_or("Invalid sender pk hex")?;
+
+    let our_sk_bytes = hex_decode(our_sk_hex).ok_or("Invalid secret key hex")?;
+    let our_sk = sign::SecretKey::from_slice(&our_sk_bytes)
+        .ok_or("Invalid secret key length")?;
+    let their_pk = sign::PublicKey::from_slice(&their_pk_bytes)
+        .ok_or("Invalid sender public key length")?;
+
+    let mut to_verify = Vec::with_capacity(nonce.len() + ciphertext.len());
+    to_verify.extend_from_slice(&nonce);
+    to_verify.extend_from_slice(&ciphertext);
+    voryn_crypto::signing::verify_signature(&to_verify, &signature, &their_pk)
+        .map_err(|_| "Signature verification failed")?;
+
+    let shared = voryn_crypto::dh::compute_shared_secret(&our_sk, &their_pk)
+        .map_err(|e| format!("DH failed: {}", e))?;
+    let sym_key_bytes = voryn_crypto::kdf::derive_key(shared.as_bytes(), b"vorynmsg", 1)
+        .map_err(|e| format!("KDF failed: {}", e))?;
+    let sym_key = secretbox::Key::from_slice(&sym_key_bytes)
+        .ok_or("Invalid symmetric key")?;
+
+    let plaintext_bytes = voryn_crypto::encryption::decrypt(&ciphertext, &nonce, &sym_key)
+        .map_err(|_| "Decryption failed")?;
+    let plaintext = String::from_utf8(plaintext_bytes)
+        .map_err(|_| "Plaintext is not valid UTF-8")?;
+
+    Ok((plaintext, sender_pk_hex))
 }
 
 // ── Helpers ───────────────────────────────────────────────────────

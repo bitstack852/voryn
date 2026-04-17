@@ -244,6 +244,50 @@ export async function pollNetworkEvent(): Promise<NetworkEvent | null> {
   }
 }
 
+// ── Encryption ───────────────────────────────────────────────────
+
+export async function encryptMessage(
+  plaintext: string,
+  ourSecretKeyHex: string,
+  ourPublicKeyHex: string,
+  theirPublicKeyHex: string,
+): Promise<{ envelopeHex: string } | null> {
+  if (!hasRustBridge) return null;
+  try {
+    const json = await VorynCore.encryptMessage(plaintext, ourSecretKeyHex, ourPublicKeyHex, theirPublicKeyHex);
+    const result = JSON.parse(json);
+    if (!result.ok) return null;
+    return { envelopeHex: result.envelope_hex };
+  } catch {
+    return null;
+  }
+}
+
+export async function decryptMessage(
+  envelopeHex: string,
+  ourSecretKeyHex: string,
+): Promise<{ plaintext: string; senderPk: string } | null> {
+  if (!hasRustBridge) return null;
+  try {
+    const json = await VorynCore.decryptMessage(envelopeHex, ourSecretKeyHex);
+    const result = JSON.parse(json);
+    if (!result.ok) return null;
+    return { plaintext: result.plaintext, senderPk: result.sender_pk };
+  } catch {
+    return null;
+  }
+}
+
+export async function peerIdFromPublicKey(publicKeyHex: string): Promise<string | null> {
+  if (!hasRustBridge) return null;
+  try {
+    const result = await VorynCore.peerIdFromPublicKey(publicKeyHex);
+    return result || null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Send raw encrypted bytes to a peer via the Rust node.
  * `dataHex` must be a hex-encoded string of the ciphertext.
@@ -363,16 +407,36 @@ export async function sendMessage(
   allMessages.push(message);
   await saveMessagesToStorage(allMessages);
 
-  // In real implementation: encrypt with DH shared secret, send via libp2p
-  // For now, mark as sent after a short delay
-  setTimeout(async () => {
-    const msgs = await loadMessagesFromStorage();
-    const idx = msgs.findIndex((m) => m.messageId === messageId);
-    if (idx !== -1) {
-      msgs[idx].status = 'sent';
-      await saveMessagesToStorage(msgs);
+  if (hasRustBridge) {
+    try {
+      const peerId = await peerIdFromPublicKey(recipientPubkeyHex);
+      if (!peerId) throw new Error('Could not derive PeerId from recipient public key');
+
+      const encrypted = await encryptMessage(
+        plaintext,
+        identity.secretKeySeedHex,
+        identity.publicKeyHex,
+        recipientPubkeyHex,
+      );
+      if (!encrypted) throw new Error('Encryption failed');
+
+      await sendRawToPeer(peerId, encrypted.envelopeHex);
+
+      const msgs = await loadMessagesFromStorage();
+      const idx = msgs.findIndex((m) => m.messageId === messageId);
+      if (idx !== -1) { msgs[idx].status = 'sent'; await saveMessagesToStorage(msgs); }
+    } catch {
+      const msgs = await loadMessagesFromStorage();
+      const idx = msgs.findIndex((m) => m.messageId === messageId);
+      if (idx !== -1) { msgs[idx].status = 'failed'; await saveMessagesToStorage(msgs); }
     }
-  }, 500);
+  } else {
+    setTimeout(async () => {
+      const msgs = await loadMessagesFromStorage();
+      const idx = msgs.findIndex((m) => m.messageId === messageId);
+      if (idx !== -1) { msgs[idx].status = 'sent'; await saveMessagesToStorage(msgs); }
+    }, 500);
+  }
 
   return messageId;
 }

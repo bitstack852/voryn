@@ -88,6 +88,51 @@ RCT_EXPORT_METHOD(nodeStatus:(RCTPromiseResolveBlock)resolve reject:(RCTPromiseR
   resolve(json);
 }
 
+// ── Encryption ──────────────────────────────────────────────────────
+
+RCT_EXPORT_METHOD(encryptMessage:(NSString *)plaintext
+                  ourSecretKeyHex:(NSString *)ourSecretKeyHex
+                  ourPublicKeyHex:(NSString *)ourPublicKeyHex
+                  theirPublicKeyHex:(NSString *)theirPublicKeyHex
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    const char* result = voryn_encrypt_message(
+      [plaintext UTF8String],
+      [ourSecretKeyHex UTF8String],
+      [ourPublicKeyHex UTF8String],
+      [theirPublicKeyHex UTF8String]
+    );
+    NSString* json = [NSString stringWithUTF8String:result];
+    voryn_free_string(result);
+    resolve(json);
+  });
+}
+
+RCT_EXPORT_METHOD(decryptMessage:(NSString *)envelopeHex
+                  ourSecretKeyHex:(NSString *)ourSecretKeyHex
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+  dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+    const char* result = voryn_decrypt_message(
+      [envelopeHex UTF8String],
+      [ourSecretKeyHex UTF8String]
+    );
+    NSString* json = [NSString stringWithUTF8String:result];
+    voryn_free_string(result);
+    resolve(json);
+  });
+}
+
+RCT_EXPORT_METHOD(peerIdFromPublicKey:(NSString *)publicKeyHex
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+  const char* result = voryn_peer_id_from_public_key([publicKeyHex UTF8String]);
+  NSString* s = result ? [NSString stringWithUTF8String:result] : @"";
+  voryn_free_string(result);
+  resolve(s);
+}
+
 - (std::shared_ptr<facebook::react::TurboModule>)getTurboModule:(const facebook::react::ObjCTurboModule::InitParams &)params {
   return std::make_shared<facebook::react::NativeVorynCoreSpecJSI>(params);
 }

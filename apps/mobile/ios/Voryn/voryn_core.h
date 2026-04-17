@@ -36,6 +36,20 @@ const char* voryn_poll_event(void);
 // Returns: {"running":true,"peer_id":"..."} or {"running":false}
 const char* voryn_node_status(void);
 
+// ── Encryption ─────────────────────────────────────────────────────
+
+// Encrypt plaintext (UTF-8) for a peer.
+// Returns: {"ok":true,"envelope_hex":"..."} or {"ok":false,"error":"..."}
+const char* voryn_encrypt_message(const char* plaintext, const char* our_secret_key_hex, const char* our_public_key_hex, const char* their_public_key_hex);
+
+// Decrypt an envelope received from a peer.
+// Returns: {"ok":true,"plaintext":"...","sender_pk":"<hex>"} or {"ok":false,"error":"..."}
+const char* voryn_decrypt_message(const char* envelope_hex, const char* our_secret_key_hex);
+
+// Convert a 32-byte Ed25519 public key (hex) to a libp2p PeerId string.
+// Returns the PeerId string, or empty string on error.
+const char* voryn_peer_id_from_public_key(const char* public_key_hex);
+
 // ── Memory ─────────────────────────────────────────────────────────
 
 // Free any string returned by a voryn_ function.

@@ -15,6 +15,17 @@ pub mod transport;
 
 pub use node::{start_node, stop_node, NodeCommand, NodeConfig, NodeEvent, NodeHandle};
 
+/// Compute the libp2p PeerId string for a 32-byte Ed25519 public key.
+pub fn peer_id_from_ed25519_public_key(pk_bytes: &[u8]) -> Option<String> {
+    if pk_bytes.len() != 32 {
+        return None;
+    }
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(pk_bytes);
+    let pk = libp2p::identity::ed25519::PublicKey::try_from_bytes(&arr).ok()?;
+    Some(libp2p::identity::PublicKey::from(pk).to_peer_id().to_string())
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum NetworkError {
     #[error("Failed to start node: {0}")]

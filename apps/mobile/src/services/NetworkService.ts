@@ -178,6 +178,7 @@ function handleEvent(event: VorynBridge.NetworkEvent): void {
       if (event.data_hex) {
         const msgId = generateMessageId();
         for (const h of messageHandlers) h(event.peer_id, event.data_hex, msgId);
+        decryptAndStore(event.data_hex, msgId).catch(console.warn);
       }
       break;
 
@@ -189,6 +190,14 @@ function handleEvent(event: VorynBridge.NetworkEvent): void {
       break;
     }
   }
+}
+
+async function decryptAndStore(envelopeHex: string, msgId: string): Promise<void> {
+  const identity = await VorynBridge.loadIdentity();
+  if (!identity) return;
+  const result = await VorynBridge.decryptMessage(envelopeHex, identity.secretKeySeedHex);
+  if (!result) return;
+  await VorynBridge.receiveMessage(result.senderPk, result.plaintext, msgId);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
