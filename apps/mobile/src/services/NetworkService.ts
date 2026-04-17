@@ -19,12 +19,14 @@ const POLL_INTERVAL_MS = 500;
 type NetworkStatus = 'disconnected' | 'connecting' | 'connected';
 type MessageHandler = (fromPeerId: string, dataHex: string, messageId: string) => void;
 type PeerHandler = (peerId: string) => void;
+type ErrorHandler = (message: string) => void;
 
 let networkStatus: NetworkStatus = 'disconnected';
 let localPeerId: string | null = null;
 let connectedPeers: Set<string> = new Set();
 let messageHandlers: MessageHandler[] = [];
 let peerConnectHandlers: PeerHandler[] = [];
+let errorHandlers: ErrorHandler[] = [];
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
 // ── Public API ────────────────────────────────────────────────────
@@ -55,6 +57,12 @@ export function onMessage(handler: MessageHandler): () => void {
 export function onPeerConnected(handler: PeerHandler): () => void {
   peerConnectHandlers.push(handler);
   return () => { peerConnectHandlers = peerConnectHandlers.filter((h) => h !== handler); };
+}
+
+/** Register a handler for network error events. Returns an unsubscribe function. */
+export function onError(handler: ErrorHandler): () => void {
+  errorHandlers.push(handler);
+  return () => { errorHandlers = errorHandlers.filter((h) => h !== handler); };
 }
 
 /**
@@ -165,6 +173,11 @@ function handleEvent(event: VorynBridge.NetworkEvent): void {
         const msgId = generateMessageId();
         for (const h of messageHandlers) h(event.peer_id, event.data_hex, msgId);
       }
+      break;
+
+    case 'error':
+      console.warn('[Network] Error event:', event.message);
+      for (const h of errorHandlers) h(event.message ?? 'Unknown network error');
       break;
   }
 }

@@ -72,6 +72,7 @@ pub enum NodeEvent {
     PeerDisconnected { peer_id: String },
     MessageReceived { peer_id: String, data: Vec<u8> },
     Started { peer_id: String, listening_on: Vec<String> },
+    Error { message: String },
 }
 
 /// Configuration for starting a network node.
@@ -356,6 +357,24 @@ fn handle_swarm_event(
             request_response::Event::OutboundFailure { peer, error, .. },
         )) => {
             warn!("Send failure to {}: {}", peer, error);
+        }
+
+        SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
+            let msg = format!("Dial failed {:?}: {}", peer_id, error);
+            warn!("{}", msg);
+            push_event(event_queue, NodeEvent::Error { message: msg });
+        }
+
+        SwarmEvent::ListenerError { error, .. } => {
+            let msg = format!("Listener error: {}", error);
+            warn!("{}", msg);
+            push_event(event_queue, NodeEvent::Error { message: msg });
+        }
+
+        SwarmEvent::ListenerClosed { reason, .. } => {
+            let msg = format!("Listener closed: {:?}", reason);
+            warn!("{}", msg);
+            push_event(event_queue, NodeEvent::Error { message: msg });
         }
 
         _ => {}

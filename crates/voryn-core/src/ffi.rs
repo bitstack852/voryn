@@ -252,6 +252,9 @@ fn serialize_event(event: NodeEvent) -> String {
                 hex_encode(&data)
             )
         }
+        NodeEvent::Error { message } => {
+            format!(r#"{{"type":"error","peer_id":"","message":"{}"}}"#, message.replace('"', "\\\""))
+        }
     }
 }
 

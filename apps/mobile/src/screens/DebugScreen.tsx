@@ -34,6 +34,9 @@ export const DebugScreen: React.FC = () => {
       addLog('Loaded identity and contacts');
     };
     load();
+
+    const unsubError = NetworkService.onError((msg) => addLog(`NET ERROR: ${msg}`));
+    return () => { unsubError(); };
   }, []);
 
   const handleShareKey = async () => {
