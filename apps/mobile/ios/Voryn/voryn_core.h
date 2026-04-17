@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 // ── Crypto ─────────────────────────────────────────────────────────
 
 const char* voryn_hello(void);
@@ -36,5 +40,9 @@ const char* voryn_node_status(void);
 
 // Free any string returned by a voryn_ function.
 void voryn_free_string(const char* s);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
