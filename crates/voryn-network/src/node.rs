@@ -422,21 +422,9 @@ fn handle_swarm_event(
             push_event(event_queue, NodeEvent::Error { message: msg });
         }
 
-        SwarmEvent::Behaviour(VorynBehaviourEvent::Relay(event)) => match event {
-            relay::client::Event::ReservationReqAccepted { relay_peer_id, renewal, .. } => {
-                info!("Relay reservation accepted on {} (renewal={})", relay_peer_id, renewal);
-            }
-            relay::client::Event::ReservationReqFailed { relay_peer_id, renewal, error } => {
-                warn!("Relay reservation failed on {} (renewal={}): {:?}", relay_peer_id, renewal, error);
-            }
-            relay::client::Event::OutboundCircuitEstablished { relay_peer_id, .. } => {
-                info!("Outbound circuit established via {}", relay_peer_id);
-            }
-            relay::client::Event::OutboundCircuitReqFailed { relay_peer_id, error } => {
-                warn!("Outbound circuit failed via {}: {:?}", relay_peer_id, error);
-            }
-            _ => {}
-        },
+        SwarmEvent::Behaviour(VorynBehaviourEvent::Relay(event)) => {
+            debug!("Relay event: {:?}", event);
+        }
 
         _ => {}
     }

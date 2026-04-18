@@ -60,7 +60,7 @@ fn load_or_create_keypair(path: &PathBuf) -> anyhow::Result<libp2p::identity::Ke
             .ok()
             .and_then(|pk| hex_decode(&pk.seed_hex).ok())
             .filter(|b| b.len() >= 32)
-            .and_then(|mut b| {
+            .and_then(|b| {
                 let mut seed = [0u8; 32];
                 seed.copy_from_slice(&b[..32]);
                 libp2p::identity::ed25519::SecretKey::try_from_bytes(&mut seed).ok()
