@@ -1,6 +1,6 @@
 # Development Status
 
-Last updated: 2026-04-17 (end of session 6)
+Last updated: 2026-04-18 (end of session 7)
 
 ## Project Overview
 
@@ -173,6 +173,73 @@ Root cause found and fixed: `RCTModuleProviders.mm` codegen generates an empty `
 
 Fix: Podfile `post_install` hook patches `RCTModuleProviders.mm` after codegen to inject `@"VorynCore": @"VorynCoreModule"`.
 
+### Session 7: Two-Device Messaging — NAT Traversal + Relay
+
+**Goal:** Get iPhone-NST and Acumen-XR to exchange messages.
+
+**Devices:**
+- iPhone-NST: UDID `00008101-001C4D8C2251001E`, CoreDevice ID `307AE499-AE17-4FBF-8CBF-0AA226467217`
+- Acumen-XR: UDID `00008020-000C49D93E98002E`, CoreDevice ID `9D82AFFE-7F98-4E32-BD8C-F1C096E09636`
+
+**Root causes identified and fixed:**
+
+1. **mDNS peers never dialed** — `Discovered` handler added peers to Kademlia but never called `swarm.dial()`. Fix: dial each discovered peer.
+
+2. **DHT peers never dialed** — `GetClosestPeers` handler listed returned peers but only called `swarm.dial()` on the first and broke. Fix: iterate all addresses.
+
+3. **Stale DHT addresses / Connection refused** — Random port 0 means each app restart gets a new port; old address stays in DHT. Fix: fixed port 47777 in `VorynBridge.ts`.
+
+4. **Direct TCP always fails between phones** — Both phones are behind iOS NAT; neither can accept inbound TCP. Fix: libp2p circuit relay.
+   - Bootstrap now runs `relay::Behaviour` (server)
+   - Phones run `relay::client::Behaviour` via `with_relay_client()`
+   - On bootstrap connect, phone calls `swarm.listen_on(bootstrap_addr/p2p-circuit)` to reserve relay slot
+   - Relay address advertised via `add_external_address` + Identify push
+
+5. **Doubled messages in chat** — `ChatScreen.handleSend` called `VorynBridge.sendMessage` (stores+sends) AND `NetworkService.sendToPeer` (which called `VorynBridge.sendMessage` internally). Fix: removed redundant `sendToPeer` call.
+
+6. **Relay address not propagating** — `identify::Config` had `push_listen_addr_updates=false` (default), so the relay address was never pushed to bootstrap after reservation. Fix: `with_push_listen_addr_updates(true)`.
+
+7. **Relay address skipped in DHT dial** — DHT dial loop broke after first `Ok()` from `swarm.dial()`, meaning relay address (3rd or 4th in list) was never tried. Fix: removed `break`, now tries all addresses.
+
+8. **SwarmBuilder phase order wrong** — `with_relay_client()` was called before `with_dns_config()`. In libp2p 0.54's type-state builder, DNS must wrap TCP first; relay client is layered on top. Fix: swapped order to `tcp → dns_config → relay_client`.
+
+9. **CI pipeline failures** — Two clippy errors: `unused mut` on `|mut b|` in bootstrap, and relay event pattern matching on wrong field names. Fix: removed `mut`, simplified relay events to `debug!("Relay event: {:?}", event)`.
+
+10. **Duplicate messages on retry** — When a send fails, the message is marked 'failed' in storage. User retries, creating a second copy. Fix: `sendMessage` now removes prior failed messages with same content before adding the new attempt.
+
+**CI/CD:**
+- `ci.yml` runs `cargo fmt`, `cargo clippy --workspace --all-targets -- -W warnings`, `cargo test --workspace`
+- `bootstrap-docker.yml` builds Docker image and pushes to `ghcr.io/bitstack852/voryn-bootstrap` on changes to crates/voryn-bootstrap, crates/voryn-network, Cargo.toml
+- Bootstrap image auto-deploys via Coolify watching the registry
+
+**Build commands for iOS (run from Mac in repo root):**
+```bash
+git pull  # ALWAYS pull latest before building
+cargo build --release --target aarch64-apple-ios -p voryn-core
+cp target/aarch64-apple-ios/release/libvoryn_core.a apps/mobile/ios/VorynRust/libvoryn_core.a
+cd apps/mobile/ios && pod install
+
+# Build (run for each device — use UDID in destination, not CoreDevice UUID)
+xcodebuild -workspace Voryn.xcworkspace -scheme Voryn \
+  -configuration Debug \
+  -destination "id=00008101-001C4D8C2251001E" \
+  -allowProvisioningUpdates CODE_SIGN_STYLE=Automatic \
+  DEVELOPMENT_TEAM=$(xcodebuild -workspace Voryn.xcworkspace -scheme Voryn \
+    -showBuildSettings 2>/dev/null | grep DEVELOPMENT_TEAM | head -1 | awk '{print $3}') \
+  2>&1 | grep -E "error:|BUILD FAILED|BUILD SUCCEEDED"
+
+# Install (use CoreDevice UUID from `xcrun devicectl list devices`)
+xcrun devicectl device install app \
+  --device 9D82AFFE-7F98-4E32-BD8C-F1C096E09636 \
+  /Users/nstorres/Library/Developer/Xcode/DerivedData/Voryn-heddhmcluvfafmfwmhmgdtkwwfbf/Build/Products/Debug-iphoneos/Voryn.app
+```
+
+**Known gotcha:** `cargo build` output "Finished in 0.53s" means it was CACHED. Run `git pull` first or the phones will have old Rust code.
+
+**Status:** Both phones connect to bootstrap. Relay reservation should be occurring. E2E message delivery under active investigation — relay addresses may not be propagating fast enough on first connect.
+
+---
+
 ### Session 6: E2E Encryption Wired
 
 - **3 new C FFI functions** — `voryn_encrypt_message`, `voryn_decrypt_message`, `voryn_peer_id_from_public_key`
@@ -235,9 +302,9 @@ Fix: Podfile `post_install` hook patches `RCTModuleProviders.mm` after codegen t
 | Fix TurboModule registration so Rust bridge loads | 1 day | ✅ Done (Session 5) |
 | Fix DNS resolver for iOS (no `/etc/resolv.conf`) | 1 hour | ✅ Done (Session 5) |
 | Verify bootstrap connection on device | 30 min | ✅ Done (Session 5) — peers: 1 |
-| Test mDNS discovery (two phones on same WiFi) | 1 hour | **Next** |
-| Test DHT discovery (two phones on different networks via bootstrap) | 2 hours | **Next** |
-| End-to-end message delivery (Phone A → Phone B via P2P) | 2 hours | **Next** |
+| Test mDNS discovery (two phones on same WiFi) | 1 hour | ✅ Fixed — peers now dialed on mDNS Discovered |
+| Test DHT discovery (two phones on different networks via bootstrap) | 2 hours | **In progress — relay implemented, testing** |
+| End-to-end message delivery (Phone A → Phone B via P2P) | 2 hours | **In progress — relay path exists, verifying delivery** |
 
 ### Phase B: Real Encrypted Messaging
 

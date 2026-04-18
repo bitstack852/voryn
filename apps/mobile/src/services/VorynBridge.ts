@@ -404,8 +404,12 @@ export async function sendMessage(
   };
 
   const allMessages = await loadMessagesFromStorage();
-  allMessages.push(message);
-  await saveMessagesToStorage(allMessages);
+  // Remove any prior failed attempts with the same content so retries don't stack up
+  const deduped = allMessages.filter(
+    (m) => !(m.conversationId === conversationId && m.plaintext === plaintext && m.status === 'failed'),
+  );
+  deduped.push(message);
+  await saveMessagesToStorage(deduped);
 
   if (hasRustBridge) {
     try {
