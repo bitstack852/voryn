@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,14 +6,12 @@ import {
   TouchableOpacity,
   Alert,
   TextInput,
-  NativeModules,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Camera, useCameraDevice, useCodeScanner, useCameraPermission } from 'react-native-vision-camera';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
-
-const { QRScanner } = NativeModules;
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ScanQR'>;
 
@@ -21,34 +19,33 @@ export const ScanQRScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const [pastedKey, setPastedKey] = useState('');
   const [isAdding, setIsAdding] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const scannedRef = useRef(false);
 
-  const processVorynUri = async (uri: string) => {
+  const { hasPermission, requestPermission } = useCameraPermission();
+  const device = useCameraDevice('back');
+
+  const processVorynUri = useCallback(async (uri: string) => {
     let pubkeyHex = uri.trim();
-
     if (pubkeyHex.startsWith('voryn://')) {
       pubkeyHex = pubkeyHex.replace('voryn://', '');
     }
-
     if (!/^[0-9a-fA-F]{64}$/.test(pubkeyHex)) {
       Alert.alert('Invalid Key', 'Not a valid Voryn public key.');
       return;
     }
-
     const identity = await VorynBridge.loadIdentity();
     if (identity && identity.publicKeyHex === pubkeyHex) {
       Alert.alert("That's You", 'You scanned your own key.');
       return;
     }
-
     const contacts = await VorynBridge.getContacts();
     if (contacts.some((c) => c.publicKeyHex === pubkeyHex)) {
       Alert.alert('Already Added', 'This contact is already in your list.');
       navigation.goBack();
       return;
     }
-
     setIsAdding(true);
-
     Alert.prompt(
       'Add Contact',
       'Enter a name for this contact:',
@@ -63,33 +60,56 @@ export const ScanQRScreen: React.FC = () => {
       '',
       'default',
     );
-  };
+  }, [navigation]);
 
-  const handleScanCamera = async () => {
-    if (!QRScanner) {
-      Alert.alert('Not Available', 'QR scanner is not available on this device.');
-      return;
-    }
-
-    try {
-      const result = await QRScanner.scan();
-      if (result) {
-        await processVorynUri(result);
+  const codeScanner = useCodeScanner({
+    codeTypes: ['qr'],
+    onCodeScanned: (codes) => {
+      if (scannedRef.current) return;
+      const value = codes[0]?.value;
+      if (value) {
+        scannedRef.current = true;
+        setCameraOpen(false);
+        processVorynUri(value);
       }
-    } catch (e: any) {
-      if (e.code === 'CANCELLED') {
-        // User cancelled — do nothing
-      } else if (e.code === 'CAMERA_DENIED') {
+    },
+  });
+
+  const handleOpenCamera = async () => {
+    if (!hasPermission) {
+      const granted = await requestPermission();
+      if (!granted) {
         Alert.alert('Camera Access', 'Please allow camera access in Settings to scan QR codes.');
-      } else {
-        Alert.alert('Error', e.message || 'Failed to scan QR code.');
+        return;
       }
     }
+    scannedRef.current = false;
+    setCameraOpen(true);
   };
+
+  if (cameraOpen && device) {
+    return (
+      <View style={styles.cameraContainer}>
+        <Camera
+          style={StyleSheet.absoluteFill}
+          device={device}
+          isActive={cameraOpen}
+          codeScanner={codeScanner}
+        />
+        <View style={styles.overlay}>
+          <View style={styles.scanFrame} />
+          <Text style={styles.scanHint}>Align the QR code within the frame</Text>
+          <TouchableOpacity style={styles.cancelButton} onPress={() => setCameraOpen(false)}>
+            <Text style={styles.cancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <TouchableOpacity style={styles.scanButton} onPress={handleScanCamera}>
+      <TouchableOpacity style={styles.scanButton} onPress={handleOpenCamera}>
         <Text style={styles.scanIcon}>📷</Text>
         <Text style={styles.scanText}>Open Camera Scanner</Text>
         <Text style={styles.scanSubtext}>Point at a Voryn QR code</Text>
@@ -128,6 +148,40 @@ export const ScanQRScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0D0D0D', padding: 24 },
+  cameraContainer: { flex: 1, backgroundColor: '#000000' },
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scanFrame: {
+    width: 260,
+    height: 260,
+    borderWidth: 2,
+    borderColor: '#4A9EFF',
+    borderRadius: 12,
+    backgroundColor: 'transparent',
+  },
+  scanHint: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    marginTop: 24,
+    textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  cancelButton: {
+    marginTop: 32,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#555555',
+  },
+  cancelText: { color: '#FFFFFF', fontSize: 16 },
   scanButton: {
     backgroundColor: '#1A3A5C',
     borderRadius: 16,
