@@ -11,7 +11,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use libp2p::{
-    identify, kad,
+    identify, kad, relay,
     mdns,
     multiaddr::Protocol,
     noise,
@@ -109,6 +109,7 @@ struct VorynBehaviour {
     mdns: mdns::tokio::Behaviour,
     identify: identify::Behaviour,
     messaging: json::Behaviour<VorynRequest, VorynResponse>,
+    relay: relay::client::Behaviour,
 }
 
 // ── Public API ────────────────────────────────────────────────────
@@ -123,8 +124,10 @@ pub async fn start_node(config: NodeConfig) -> Result<NodeHandle, NetworkError> 
         .with_tokio()
         .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)
         .map_err(|e| NetworkError::StartFailed(e.to_string()))?
+        .with_relay_client(noise::Config::new, yamux::Config::default)
+        .map_err(|e| NetworkError::StartFailed(e.to_string()))?
         .with_dns_config(ResolverConfig::cloudflare(), ResolverOpts::default())
-        .with_behaviour(|key| {
+        .with_behaviour(|key, relay_client| {
             let peer_id = key.public().to_peer_id();
 
             let mut kademlia = kad::Behaviour::new(
@@ -149,7 +152,7 @@ pub async fn start_node(config: NodeConfig) -> Result<NodeHandle, NetworkError> 
                 request_response::Config::default(),
             );
 
-            Ok(VorynBehaviour { kademlia, mdns, identify, messaging })
+            Ok(VorynBehaviour { kademlia, mdns, identify, messaging, relay: relay_client })
         })
         .map_err(|e| NetworkError::StartFailed(e.to_string()))?
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(60)))
@@ -157,12 +160,14 @@ pub async fn start_node(config: NodeConfig) -> Result<NodeHandle, NetworkError> 
 
     // Add bootstrap peers to kademlia and dial them.
     let mut bootstrapped = false;
+    let mut relay_bootstrap_addrs: HashMap<PeerId, Multiaddr> = HashMap::new();
     for addr_str in &config.bootstrap_peers {
         match addr_str.parse::<Multiaddr>() {
             Ok(addr) => {
                 if let Some(peer_id) = extract_peer_id(&addr) {
                     swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
-                    let _ = swarm.dial(addr);
+                    let _ = swarm.dial(addr.clone());
+                    relay_bootstrap_addrs.insert(peer_id, addr);
                     bootstrapped = true;
                     info!("Added bootstrap peer: {}", peer_id);
                 } else {
@@ -188,7 +193,7 @@ pub async fn start_node(config: NodeConfig) -> Result<NodeHandle, NetworkError> 
     let event_queue: Arc<Mutex<VecDeque<NodeEvent>>> = Arc::new(Mutex::new(VecDeque::new()));
     let eq_clone = event_queue.clone();
 
-    tokio::spawn(run_swarm(swarm, command_rx, eq_clone));
+    tokio::spawn(run_swarm(swarm, command_rx, eq_clone, relay_bootstrap_addrs));
 
     Ok(NodeHandle {
         peer_id: local_peer_id.to_string(),
@@ -207,8 +212,8 @@ async fn run_swarm(
     mut swarm: Swarm<VorynBehaviour>,
     mut command_rx: mpsc::Receiver<NodeCommand>,
     event_queue: Arc<Mutex<VecDeque<NodeEvent>>>,
+    relay_bootstrap_addrs: HashMap<PeerId, Multiaddr>,
 ) {
-    // Messages waiting to be sent once the target peer connects.
     let mut pending: HashMap<PeerId, Vec<Vec<u8>>> = HashMap::new();
     let mut listen_addrs: Vec<String> = Vec::new();
 
@@ -216,11 +221,14 @@ async fn run_swarm(
         tokio::select! {
             Some(cmd) = command_rx.recv() => {
                 if handle_command(cmd, &mut swarm, &mut pending, &event_queue) {
-                    break; // Shutdown
+                    break;
                 }
             }
             event = swarm.select_next_some() => {
-                handle_swarm_event(event, &mut swarm, &mut pending, &event_queue, &mut listen_addrs);
+                handle_swarm_event(
+                    event, &mut swarm, &mut pending, &event_queue,
+                    &mut listen_addrs, &relay_bootstrap_addrs,
+                );
             }
         }
     }
@@ -266,16 +274,24 @@ fn handle_swarm_event(
     pending: &mut HashMap<PeerId, Vec<Vec<u8>>>,
     event_queue: &Arc<Mutex<VecDeque<NodeEvent>>>,
     listen_addrs: &mut Vec<String>,
+    relay_bootstrap_addrs: &HashMap<PeerId, Multiaddr>,
 ) {
     match event {
         SwarmEvent::NewListenAddr { address, .. } => {
-            let addr_str = format!("{}/p2p/{}", address, swarm.local_peer_id());
+            let local_peer_id = *swarm.local_peer_id();
+            // Register relay address as external so identify advertises it
+            if address.iter().any(|p| matches!(p, Protocol::P2pCircuit)) {
+                let relay_addr = address.clone().with(Protocol::P2p(local_peer_id));
+                swarm.add_external_address(relay_addr.clone());
+                info!("Relay address registered: {}", relay_addr);
+            }
+            let addr_str = format!("{}/p2p/{}", address, local_peer_id);
             info!("Listening on {}", addr_str);
             listen_addrs.push(addr_str);
             push_event(
                 event_queue,
                 NodeEvent::Started {
-                    peer_id: swarm.local_peer_id().to_string(),
+                    peer_id: local_peer_id.to_string(),
                     listening_on: listen_addrs.clone(),
                 },
             );
@@ -289,6 +305,15 @@ fn handle_swarm_event(
                     swarm.behaviour_mut().messaging.send_request(&peer_id, VorynRequest { data });
                 }
             }
+            // Reserve a relay slot on this peer if it's a bootstrap relay
+            if let Some(bootstrap_addr) = relay_bootstrap_addrs.get(&peer_id) {
+                let circuit_addr = bootstrap_addr.clone().with(Protocol::P2pCircuit);
+                if let Err(e) = swarm.listen_on(circuit_addr) {
+                    warn!("Relay reservation request failed: {}", e);
+                } else {
+                    info!("Relay reservation requested on {}", peer_id);
+                }
+            }
         }
         SwarmEvent::ConnectionClosed { peer_id, .. } => {
             debug!("Disconnected: {}", peer_id);
@@ -297,9 +322,16 @@ fn handle_swarm_event(
 
         SwarmEvent::Behaviour(VorynBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
             for (peer_id, addr) in list {
-                info!("mDNS: {} @ {}", peer_id, addr);
-                swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
-                push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_id.to_string() });
+                let peer_id_str = peer_id.to_string();
+                info!("mDNS: {} @ {}", peer_id_str, addr);
+                swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                if !swarm.is_connected(&peer_id) {
+                    let dial_addr = addr.with(Protocol::P2p(peer_id));
+                    if let Err(e) = swarm.dial(dial_addr) {
+                        warn!("mDNS dial failed: {}", e);
+                    }
+                }
+                push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_id_str });
             }
         }
         SwarmEvent::Behaviour(VorynBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
@@ -330,8 +362,18 @@ fn handle_swarm_event(
             },
         )) => {
             for peer_info in ok.peers {
-                debug!("DHT found peer: {}", peer_info.peer_id);
-                push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_info.peer_id.to_string() });
+                let peer_id_str = peer_info.peer_id.to_string();
+                debug!("DHT found peer: {} addrs={}", peer_id_str, peer_info.addrs.len());
+                if pending.contains_key(&peer_info.peer_id) && !swarm.is_connected(&peer_info.peer_id) {
+                    for addr in &peer_info.addrs {
+                        let dial_addr = addr.clone().with(Protocol::P2p(peer_info.peer_id.clone()));
+                        if swarm.dial(dial_addr).is_ok() {
+                            info!("DHT: dialing pending-message peer {}", peer_id_str);
+                            break;
+                        }
+                    }
+                }
+                push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_id_str });
             }
         }
 
@@ -379,6 +421,22 @@ fn handle_swarm_event(
             warn!("{}", msg);
             push_event(event_queue, NodeEvent::Error { message: msg });
         }
+
+        SwarmEvent::Behaviour(VorynBehaviourEvent::Relay(event)) => match event {
+            relay::client::Event::ReservationReqAccepted { relay_peer_id, renewal, .. } => {
+                info!("Relay reservation accepted on {} (renewal={})", relay_peer_id, renewal);
+            }
+            relay::client::Event::ReservationReqFailed { relay_peer_id, renewal, error } => {
+                warn!("Relay reservation failed on {} (renewal={}): {:?}", relay_peer_id, renewal, error);
+            }
+            relay::client::Event::OutboundCircuitEstablished { relay_peer_id, .. } => {
+                info!("Outbound circuit established via {}", relay_peer_id);
+            }
+            relay::client::Event::OutboundCircuitReqFailed { relay_peer_id, error } => {
+                warn!("Outbound circuit failed via {}: {:?}", relay_peer_id, error);
+            }
+            _ => {}
+        },
 
         _ => {}
     }

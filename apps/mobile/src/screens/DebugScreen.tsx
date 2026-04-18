@@ -193,11 +193,14 @@ export const DebugScreen: React.FC = () => {
         <View style={styles.logHeader}>
           <Text style={styles.sectionTitle}>Log</Text>
           {logs.length > 0 && (
-            <TouchableOpacity
-              onPress={() => Share.share({ message: [...logs].reverse().join('\n') })}
-            >
-              <Text style={styles.copyButton}>Copy</Text>
-            </TouchableOpacity>
+            <View style={styles.logActions}>
+              <TouchableOpacity onPress={() => Share.share({ message: [...logs].reverse().join('\n') })}>
+                <Text style={styles.logActionText}>Copy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setLogs([])}>
+                <Text style={[styles.logActionText, { marginLeft: 16 }]}>Clear</Text>
+              </TouchableOpacity>
+            </View>
           )}
         </View>
         {logs.map((log, i) => (
@@ -248,6 +251,7 @@ const styles = StyleSheet.create({
   },
   dangerButtonText: { fontSize: 14, color: '#FF3B30' },
   logText: { fontSize: 10, color: '#666666', fontFamily: 'monospace', marginTop: 2 },
-  logHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  copyButton: { fontSize: 13, color: '#4A9EFF', fontWeight: '600' },
+  logHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  logActions: { flexDirection: 'row' },
+  logActionText: { fontSize: 13, color: '#4A9EFF', fontWeight: '600' },
 });

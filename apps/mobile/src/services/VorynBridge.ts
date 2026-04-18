@@ -175,7 +175,7 @@ export async function startNetwork(bootstrapPeers: string[]): Promise<string> {
   const configJson = JSON.stringify({
     keypair_seed_hex: keypairSeedHex,
     bootstrap_peers: bootstrapPeers,
-    listen_port: 0,
+    listen_port: 47777,
     enable_mdns: true,
   });
 
