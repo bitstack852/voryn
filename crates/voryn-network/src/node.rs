@@ -139,10 +139,10 @@ pub async fn start_node(config: NodeConfig) -> Result<NodeHandle, NetworkError> 
             let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)
                 .map_err(|e| NetworkError::StartFailed(e.to_string()))?;
 
-            let identify = identify::Behaviour::new(identify::Config::new(
-                "/voryn/1.0.0".to_string(),
-                key.public(),
-            ));
+            let identify = identify::Behaviour::new(
+                identify::Config::new("/voryn/1.0.0".to_string(), key.public())
+                    .with_push_listen_addr_updates(true),
+            );
 
             let messaging = json::Behaviour::<VorynRequest, VorynResponse>::new(
                 [(
@@ -367,11 +367,11 @@ fn handle_swarm_event(
                 if pending.contains_key(&peer_info.peer_id) && !swarm.is_connected(&peer_info.peer_id) {
                     for addr in &peer_info.addrs {
                         let dial_addr = addr.clone().with(Protocol::P2p(peer_info.peer_id.clone()));
-                        if swarm.dial(dial_addr).is_ok() {
-                            info!("DHT: dialing pending-message peer {}", peer_id_str);
-                            break;
+                        if let Err(e) = swarm.dial(dial_addr) {
+                            debug!("DHT: dial rejected for {}: {}", peer_id_str, e);
                         }
                     }
+                    info!("DHT: dialing all {} addrs for pending peer {}", peer_info.addrs.len(), peer_id_str);
                 }
                 push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_id_str });
             }
