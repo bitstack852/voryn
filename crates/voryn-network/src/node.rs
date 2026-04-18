@@ -124,9 +124,9 @@ pub async fn start_node(config: NodeConfig) -> Result<NodeHandle, NetworkError> 
         .with_tokio()
         .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)
         .map_err(|e| NetworkError::StartFailed(e.to_string()))?
+        .with_dns_config(ResolverConfig::cloudflare(), ResolverOpts::default())
         .with_relay_client(noise::Config::new, yamux::Config::default)
         .map_err(|e| NetworkError::StartFailed(e.to_string()))?
-        .with_dns_config(ResolverConfig::cloudflare(), ResolverOpts::default())
         .with_behaviour(|key, relay_client| {
             let peer_id = key.public().to_peer_id();
 
