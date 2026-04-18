@@ -22,6 +22,8 @@ use libp2p::{
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
+use hickory_resolver::config::{ResolverConfig, ResolverOpts};
+
 use crate::protocols::{VorynRequest, VorynResponse, MESSAGE_PROTOCOL};
 use crate::NetworkError;
 
@@ -121,6 +123,7 @@ pub async fn start_node(config: NodeConfig) -> Result<NodeHandle, NetworkError> 
         .with_tokio()
         .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)
         .map_err(|e| NetworkError::StartFailed(e.to_string()))?
+        .with_dns_config(ResolverConfig::cloudflare(), ResolverOpts::default())
         .with_behaviour(|key| {
             let peer_id = key.public().to_peer_id();
 
@@ -294,9 +297,16 @@ fn handle_swarm_event(
 
         SwarmEvent::Behaviour(VorynBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
             for (peer_id, addr) in list {
-                info!("mDNS: {} @ {}", peer_id, addr);
-                swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
-                push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_id.to_string() });
+                let peer_id_str = peer_id.to_string();
+                info!("mDNS: {} @ {}", peer_id_str, addr);
+                swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
+                if !swarm.is_connected(&peer_id) {
+                    let dial_addr = addr.with(Protocol::P2p(peer_id));
+                    if let Err(e) = swarm.dial(dial_addr) {
+                        warn!("mDNS dial failed: {}", e);
+                    }
+                }
+                push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_id_str });
             }
         }
         SwarmEvent::Behaviour(VorynBehaviourEvent::Mdns(mdns::Event::Expired(list))) => {
@@ -327,8 +337,18 @@ fn handle_swarm_event(
             },
         )) => {
             for peer_info in ok.peers {
-                debug!("DHT found peer: {}", peer_info.peer_id);
-                push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_info.peer_id.to_string() });
+                let peer_id_str = peer_info.peer_id.to_string();
+                debug!("DHT found peer: {} addrs={}", peer_id_str, peer_info.addrs.len());
+                if pending.contains_key(&peer_info.peer_id) && !swarm.is_connected(&peer_info.peer_id) {
+                    for addr in &peer_info.addrs {
+                        let dial_addr = addr.clone().with(Protocol::P2p(peer_info.peer_id.clone()));
+                        if swarm.dial(dial_addr).is_ok() {
+                            info!("DHT: dialing pending-message peer {}", peer_id_str);
+                            break;
+                        }
+                    }
+                }
+                push_event(event_queue, NodeEvent::PeerDiscovered { peer_id: peer_id_str });
             }
         }
 
