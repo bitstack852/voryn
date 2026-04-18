@@ -13,7 +13,7 @@ use std::time::Duration;
 use clap::Parser;
 use futures::StreamExt;
 use libp2p::{
-    identify, kad,
+    identify, kad, relay,
     multiaddr::Protocol,
     noise,
     swarm::{NetworkBehaviour, SwarmEvent},
@@ -43,6 +43,7 @@ struct Args {
 struct BootstrapBehaviour {
     kademlia: kad::Behaviour<kad::store::MemoryStore>,
     identify: identify::Behaviour,
+    relay: relay::Behaviour,
 }
 
 // ── Identity persistence ──────────────────────────────────────────
@@ -130,7 +131,9 @@ async fn main() -> anyhow::Result<()> {
                 key.public(),
             ));
 
-            Ok(BootstrapBehaviour { kademlia, identify })
+            let relay = relay::Behaviour::new(peer_id, relay::Config::default());
+
+            Ok(BootstrapBehaviour { kademlia, identify, relay })
         })?
         .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(300)))
         .build();

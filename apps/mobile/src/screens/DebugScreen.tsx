@@ -190,7 +190,14 @@ export const DebugScreen: React.FC = () => {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Log</Text>
+        <View style={styles.logHeader}>
+          <Text style={styles.sectionTitle}>Log</Text>
+          {logs.length > 0 && (
+            <TouchableOpacity onPress={() => setLogs([])}>
+              <Text style={styles.clearLogText}>Clear</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         {logs.map((log, i) => (
           <Text key={i} style={styles.logText}>{log}</Text>
         ))}
@@ -239,4 +246,6 @@ const styles = StyleSheet.create({
   },
   dangerButtonText: { fontSize: 14, color: '#FF3B30' },
   logText: { fontSize: 10, color: '#666666', fontFamily: 'monospace', marginTop: 2 },
+  logHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  clearLogText: { fontSize: 13, color: '#4A9EFF' },
 });
