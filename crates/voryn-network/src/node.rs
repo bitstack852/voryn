@@ -323,6 +323,10 @@ fn handle_swarm_event(
         SwarmEvent::Behaviour(VorynBehaviourEvent::Mdns(mdns::Event::Discovered(list))) => {
             for (peer_id, addr) in list {
                 let peer_id_str = peer_id.to_string();
+                if !is_routable_addr(&addr) {
+                    debug!("mDNS: skipping non-routable addr {} for {}", addr, peer_id_str);
+                    continue;
+                }
                 info!("mDNS: {} @ {}", peer_id_str, addr);
                 swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
                 if !swarm.is_connected(&peer_id) {
@@ -346,7 +350,11 @@ fn handle_swarm_event(
             ..
         })) => {
             for addr in info.listen_addrs {
-                swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
+                if is_routable_addr(&addr) {
+                    swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
+                } else {
+                    debug!("Identify: skipping non-routable addr {} for {}", addr, peer_id);
+                }
             }
         }
 
@@ -473,6 +481,31 @@ fn push_event(queue: &Arc<Mutex<VecDeque<NodeEvent>>>, event: NodeEvent) {
             q.push_back(event);
         }
     }
+}
+
+/// Returns false for link-local (169.254.x.x / fe80::), loopback, and unspecified addresses.
+/// These are never routable between devices and must not be stored in the DHT.
+fn is_routable_addr(addr: &Multiaddr) -> bool {
+    for proto in addr.iter() {
+        match proto {
+            Protocol::Ip4(ip) => {
+                if ip.is_loopback() || ip.is_link_local() || ip.is_unspecified() {
+                    return false;
+                }
+            }
+            Protocol::Ip6(ip) => {
+                if ip.is_loopback() || ip.is_unspecified() {
+                    return false;
+                }
+                // fe80::/10 link-local
+                if ip.segments()[0] & 0xffc0 == 0xfe80 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+    }
+    true
 }
 
 #[cfg(test)]
