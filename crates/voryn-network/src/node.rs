@@ -139,10 +139,10 @@ pub async fn start_node(config: NodeConfig) -> Result<NodeHandle, NetworkError> 
             let mdns = mdns::tokio::Behaviour::new(mdns::Config::default(), peer_id)
                 .map_err(|e| NetworkError::StartFailed(e.to_string()))?;
 
-            let identify = identify::Behaviour::new(identify::Config::new(
-                "/voryn/1.0.0".to_string(),
-                key.public(),
-            ));
+            let identify = identify::Behaviour::new(
+                identify::Config::new("/voryn/1.0.0".to_string(), key.public())
+                    .with_push_listen_addr_updates(true),
+            );
 
             let messaging = json::Behaviour::<VorynRequest, VorynResponse>::new(
                 [(
@@ -220,7 +220,7 @@ async fn run_swarm(
     loop {
         tokio::select! {
             Some(cmd) = command_rx.recv() => {
-                if handle_command(cmd, &mut swarm, &mut pending, &event_queue) {
+                if handle_command(cmd, &mut swarm, &mut pending, &event_queue, &relay_bootstrap_addrs) {
                     break;
                 }
             }
@@ -241,6 +241,7 @@ fn handle_command(
     swarm: &mut Swarm<VorynBehaviour>,
     pending: &mut HashMap<PeerId, Vec<Vec<u8>>>,
     _event_queue: &Arc<Mutex<VecDeque<NodeEvent>>>,
+    relay_bootstrap_addrs: &HashMap<PeerId, Multiaddr>,
 ) -> bool {
     match cmd {
         NodeCommand::SendMessage { peer_id, data } => {
@@ -251,6 +252,16 @@ fn handle_command(
                     } else {
                         pending.entry(target).or_default().push(data);
                         swarm.behaviour_mut().kademlia.get_closest_peers(target);
+                        // Also attempt relay dial immediately — direct addrs are often unreachable
+                        for (_, bootstrap_addr) in relay_bootstrap_addrs.iter() {
+                            let circuit = bootstrap_addr
+                                .clone()
+                                .with(Protocol::P2pCircuit)
+                                .with(Protocol::P2p(target));
+                            if swarm.dial(circuit).is_ok() {
+                                info!("RELAY_DIAL: queued circuit dial to {}", peer_id);
+                            }
+                        }
                     }
                 }
                 Err(e) => error!("SendMessage: invalid PeerId '{}': {}", peer_id, e),
