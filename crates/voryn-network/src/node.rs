@@ -283,7 +283,9 @@ fn handle_swarm_event(
             if address.iter().any(|p| matches!(p, Protocol::P2pCircuit)) {
                 let relay_addr = address.clone().with(Protocol::P2p(local_peer_id));
                 swarm.add_external_address(relay_addr.clone());
-                info!("Relay address registered: {}", relay_addr);
+                let msg = format!("RELAY_OK: reservation confirmed: {}", relay_addr);
+                info!("{}", msg);
+                push_event(event_queue, NodeEvent::Error { message: msg });
             }
             let addr_str = format!("{}/p2p/{}", address, local_peer_id);
             info!("Listening on {}", addr_str);
@@ -309,9 +311,13 @@ fn handle_swarm_event(
             if let Some(bootstrap_addr) = relay_bootstrap_addrs.get(&peer_id) {
                 let circuit_addr = bootstrap_addr.clone().with(Protocol::P2pCircuit);
                 if let Err(e) = swarm.listen_on(circuit_addr) {
-                    warn!("Relay reservation request failed: {}", e);
+                    let msg = format!("RELAY_FAIL: reservation request failed: {}", e);
+                    warn!("{}", msg);
+                    push_event(event_queue, NodeEvent::Error { message: msg });
                 } else {
-                    info!("Relay reservation requested on {}", peer_id);
+                    let msg = format!("RELAY_REQ: reservation requested on {}", peer_id);
+                    info!("{}", msg);
+                    push_event(event_queue, NodeEvent::Error { message: msg });
                 }
             }
         }
@@ -349,6 +355,11 @@ fn handle_swarm_event(
             info,
             ..
         })) => {
+            // Bootstrap tells us our own observed address — register it so Identify advertises it
+            if is_routable_addr(&info.observed_addr) {
+                swarm.add_external_address(info.observed_addr.clone());
+                info!("External addr observed by {}: {}", peer_id, info.observed_addr);
+            }
             for addr in info.listen_addrs {
                 if is_routable_addr(&addr) {
                     swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
