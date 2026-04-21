@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+
+  <rect width="1024" height="1024" fill="#0a0a0a"></rect>
+
+
+  <defs>
+    <radialGradient id="g" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#8CE8FF" stop-opacity="0.15"></stop>
+      <stop offset="100%" stop-color="#8CE8FF" stop-opacity="0"></stop>
+    </radialGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#g)"></rect>
+
+
+  <g transform="translate(512 512) scale(17.77)">
+
+    <circle cx="0" cy="0" r="14" stroke="#8CE8FF" stroke-width="0.6" fill="none" opacity="0.4"></circle>
+    <circle cx="0" cy="0" r="9" stroke="#8CE8FF" stroke-width="0.6" fill="none" opacity="0.6"></circle>
+
+
+    <line x1="0" y1="-12" x2="0" y2="12" stroke="#8CE8FF" stroke-width="0.4" opacity="0.4"></line>
+    <line x1="-12" y1="0" x2="12" y2="0" stroke="#8CE8FF" stroke-width="0.4" opacity="0.4"></line>
+
+
+    <circle cx="0" cy="-12" r="1.4" fill="#8CE8FF"></circle>
+    <circle cx="12" cy="0" r="1.4" fill="#8CE8FF"></circle>
+    <circle cx="0" cy="12" r="1.4" fill="#8CE8FF"></circle>
+    <circle cx="-12" cy="0" r="1.4" fill="#8CE8FF"></circle>
+
+
+    <circle cx="0" cy="0" r="3" fill="#FFFFFF"></circle>
+  </g>
+</svg>
