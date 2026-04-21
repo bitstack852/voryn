@@ -220,7 +220,7 @@ async fn run_swarm(
     loop {
         tokio::select! {
             Some(cmd) = command_rx.recv() => {
-                if handle_command(cmd, &mut swarm, &mut pending, &event_queue) {
+                if handle_command(cmd, &mut swarm, &mut pending, &event_queue, &relay_bootstrap_addrs) {
                     break;
                 }
             }
@@ -241,6 +241,7 @@ fn handle_command(
     swarm: &mut Swarm<VorynBehaviour>,
     pending: &mut HashMap<PeerId, Vec<Vec<u8>>>,
     _event_queue: &Arc<Mutex<VecDeque<NodeEvent>>>,
+    relay_bootstrap_addrs: &HashMap<PeerId, Multiaddr>,
 ) -> bool {
     match cmd {
         NodeCommand::SendMessage { peer_id, data } => {
@@ -251,6 +252,16 @@ fn handle_command(
                     } else {
                         pending.entry(target).or_default().push(data);
                         swarm.behaviour_mut().kademlia.get_closest_peers(target);
+                        // Also attempt relay dial immediately — direct addrs are often unreachable
+                        for (_, bootstrap_addr) in relay_bootstrap_addrs.iter() {
+                            let circuit = bootstrap_addr
+                                .clone()
+                                .with(Protocol::P2pCircuit)
+                                .with(Protocol::P2p(target));
+                            if swarm.dial(circuit).is_ok() {
+                                info!("RELAY_DIAL: queued circuit dial to {}", peer_id);
+                            }
+                        }
                     }
                 }
                 Err(e) => error!("SendMessage: invalid PeerId '{}': {}", peer_id, e),
@@ -283,7 +294,9 @@ fn handle_swarm_event(
             if address.iter().any(|p| matches!(p, Protocol::P2pCircuit)) {
                 let relay_addr = address.clone().with(Protocol::P2p(local_peer_id));
                 swarm.add_external_address(relay_addr.clone());
-                info!("Relay address registered: {}", relay_addr);
+                let msg = format!("RELAY_OK: reservation confirmed: {}", relay_addr);
+                info!("{}", msg);
+                push_event(event_queue, NodeEvent::Error { message: msg });
             }
             let addr_str = format!("{}/p2p/{}", address, local_peer_id);
             info!("Listening on {}", addr_str);
@@ -309,9 +322,13 @@ fn handle_swarm_event(
             if let Some(bootstrap_addr) = relay_bootstrap_addrs.get(&peer_id) {
                 let circuit_addr = bootstrap_addr.clone().with(Protocol::P2pCircuit);
                 if let Err(e) = swarm.listen_on(circuit_addr) {
-                    warn!("Relay reservation request failed: {}", e);
+                    let msg = format!("RELAY_FAIL: reservation request failed: {}", e);
+                    warn!("{}", msg);
+                    push_event(event_queue, NodeEvent::Error { message: msg });
                 } else {
-                    info!("Relay reservation requested on {}", peer_id);
+                    let msg = format!("RELAY_REQ: reservation requested on {}", peer_id);
+                    info!("{}", msg);
+                    push_event(event_queue, NodeEvent::Error { message: msg });
                 }
             }
         }
@@ -349,6 +366,11 @@ fn handle_swarm_event(
             info,
             ..
         })) => {
+            // Bootstrap tells us our own observed address — register it so Identify advertises it
+            if is_routable_addr(&info.observed_addr) {
+                swarm.add_external_address(info.observed_addr.clone());
+                info!("External addr observed by {}: {}", peer_id, info.observed_addr);
+            }
             for addr in info.listen_addrs {
                 if is_routable_addr(&addr) {
                     swarm.behaviour_mut().kademlia.add_address(&peer_id, addr);
