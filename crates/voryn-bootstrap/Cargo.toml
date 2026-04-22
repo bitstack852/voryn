@@ -4,23 +4,25 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "Voryn DHT bootstrap node — standalone server binary"
+description = "Voryn relay node — WebSocket message relay server"
 
 [[bin]]
 name = "voryn-bootstrap"
 path = "src/main.rs"
 
 [dependencies]
-libp2p.workspace = true
-futures.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 rand.workspace = true
-thiserror.workspace = true
 anyhow.workspace = true
 
 # CLI args
 clap = { version = "4", features = ["derive"] }
+
+# WebSocket server
+warp = "0.3"
+tokio-tungstenite = "0.24"
+futures-util = "0.3"

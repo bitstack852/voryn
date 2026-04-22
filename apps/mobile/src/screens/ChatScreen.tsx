@@ -12,7 +12,12 @@ import {
 import { useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/RootNavigator';
+import * as NetworkService from '../services/NetworkService';
 import * as VorynBridge from '../services/VorynBridge';
+<<<<<<< HEAD
+=======
+import * as NetworkService from '../services/NetworkService';
+>>>>>>> origin/claude/websocket-relay-integration
 import { colors } from '../theme/colors';
 
 type ChatRoute = RouteProp<RootStackParamList, 'Chat'>;
@@ -44,11 +49,24 @@ export const ChatScreen: React.FC = () => {
     return () => clearInterval(interval);
   }, [loadMessages]);
 
+  // Reload when a message arrives from this contact via relay
+  useEffect(() => {
+    return NetworkService.onMessage((from) => {
+      if (from === contactPubkeyHex) loadMessages();
+    });
+  }, [contactPubkeyHex, loadMessages]);
+
   const handleSend = async () => {
     if (!messageText.trim()) return;
     const text = messageText.trim();
     setMessageText('');
-    await VorynBridge.sendMessage(contactPubkeyHex, text);
+
+    const messageId = await VorynBridge.sendMessage(contactPubkeyHex, text);
+
+    if (NetworkService.getStatus() === 'connected') {
+      NetworkService.sendToPeer(contactPubkeyHex, text, messageId);
+    }
+
     await loadMessages();
   };
 
@@ -59,9 +77,9 @@ export const ChatScreen: React.FC = () => {
 
   const statusIcon = (status: string) => {
     switch (status) {
-      case 'pending': return '\u23F3';
-      case 'sent': return '\u2713';
-      case 'delivered': return '\u2713\u2713';
+      case 'pending': return '⏳';
+      case 'sent': return '✓';
+      case 'delivered': return '✓✓';
       default: return '';
     }
   };
@@ -100,7 +118,7 @@ export const ChatScreen: React.FC = () => {
           value={messageText}
           onChangeText={setMessageText}
           placeholder="Message"
-          placeholderTextColor="#555555"
+          placeholderTextColor={colors.textMuted}
           multiline
           maxLength={4096}
         />
@@ -109,7 +127,7 @@ export const ChatScreen: React.FC = () => {
           onPress={handleSend}
           disabled={!messageText.trim()}
         >
-          <Text style={[styles.sendButtonText, !messageText.trim() && { color: '#555555' }]}>
+          <Text style={[styles.sendButtonText, !messageText.trim() && { color: colors.textMuted }]}>
             Send
           </Text>
         </TouchableOpacity>
