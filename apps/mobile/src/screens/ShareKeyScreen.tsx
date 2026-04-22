@@ -12,6 +12,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import QRCode from 'react-native-qrcode-svg';
 import * as VorynBridge from '../services/VorynBridge';
+import { colors } from '../theme/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ShareKey'>;
 
@@ -121,7 +122,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     width: '100%',
     borderWidth: 1,
-    borderColor: '#4A9EFF',
+    borderColor: colors.accent,
   },
-  scanButtonText: { fontSize: 16, fontWeight: '600', color: '#4A9EFF' },
+  scanButtonText: { fontSize: 16, fontWeight: '600', color: colors.accent },
 });

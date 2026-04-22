@@ -5,6 +5,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
 import * as PasscodeService from '../services/PasscodeService';
+import { useNetwork } from '../hooks/useNetwork';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Settings'>;
 
@@ -14,6 +15,7 @@ export const SettingsScreen: React.FC = () => {
   const [createdAt, setCreatedAt] = useState<string>('');
   const [contactCount, setContactCount] = useState<number>(0);
   const [hasPasscode, setHasPasscode] = useState(false);
+  const { status, peerCount, localPeerId } = useNetwork();
 
   useEffect(() => {
     const load = async () => {
@@ -67,7 +69,17 @@ export const SettingsScreen: React.FC = () => {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Network</Text>
         <Text style={styles.label}>Status</Text>
-        <Text style={styles.value}>Offline (P2P not connected)</Text>
+        <Text style={styles.value}>
+          {status === 'connected' ? `Connected · ${peerCount} peer${peerCount !== 1 ? 's' : ''}` :
+           status === 'connecting' ? 'Connecting...' :
+           'Offline'}
+        </Text>
+        {localPeerId ? (
+          <>
+            <Text style={styles.label}>Peer ID</Text>
+            <Text style={styles.value} selectable numberOfLines={2}>{localPeerId}</Text>
+          </>
+        ) : null}
         <Text style={styles.label}>Contacts</Text>
         <Text style={styles.value}>{contactCount}</Text>
       </View>
