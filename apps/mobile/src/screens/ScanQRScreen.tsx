@@ -12,6 +12,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Camera, useCameraDevice, useCodeScanner, useCameraPermission } from 'react-native-vision-camera';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
+import { colors } from '../theme/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'ScanQR'>;
 
@@ -158,7 +159,7 @@ const styles = StyleSheet.create({
     width: 260,
     height: 260,
     borderWidth: 2,
-    borderColor: '#4A9EFF',
+    borderColor: colors.accent,
     borderRadius: 12,
     backgroundColor: 'transparent',
   },
@@ -183,12 +184,12 @@ const styles = StyleSheet.create({
   },
   cancelText: { color: '#FFFFFF', fontSize: 16 },
   scanButton: {
-    backgroundColor: '#1A3A5C',
+    backgroundColor: colors.accentDark,
     borderRadius: 16,
     padding: 32,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#4A9EFF',
+    borderColor: colors.accent,
   },
   scanIcon: { fontSize: 48, marginBottom: 12 },
   scanText: { fontSize: 18, fontWeight: '600', color: '#FFFFFF' },
@@ -211,12 +212,12 @@ const styles = StyleSheet.create({
     textAlignVertical: 'top',
   },
   addButton: {
-    backgroundColor: '#4A9EFF',
+    backgroundColor: colors.accent,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
     marginTop: 16,
   },
   addButtonDisabled: { opacity: 0.3 },
-  addButtonText: { fontSize: 16, fontWeight: '600', color: '#FFFFFF' },
+  addButtonText: { fontSize: 16, fontWeight: '600', color: colors.background },
 });

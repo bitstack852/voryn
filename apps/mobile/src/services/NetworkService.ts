@@ -1,34 +1,45 @@
 /**
- * NetworkService — P2P networking layer.
+ * NetworkService — WebSocket connection to the Voryn relay node.
  *
- * Drives the Rust libp2p node running on a background thread inside the
- * native library. Consumers call connect/disconnect and register message
- * handlers; the service polls the Rust event queue every 500 ms.
+ * Handles:
+ * - WebSocket connection to boot1.voryn.bitstack.website
+ * - Peer registration (sends our public key)
+ * - Message relay (send/receive encrypted messages)
+ * - Online peer tracking
+ * - Auto-reconnect on disconnect
  */
 
 import * as VorynBridge from './VorynBridge';
 
-// Bootstrap peer multiaddrs.
-// Update the /p2p/<PeerId> component after re-deploying the bootstrap binary.
-const BOOTSTRAP_PEERS: string[] = [
-  '/dns4/boot1.voryn.bitstack.website/tcp/4001/p2p/12D3KooWMnagsbtuh6ytx5VWUPDhq9BePidVwmpEU7GG9ZHTnv3X',
-];
-
-const POLL_INTERVAL_MS = 500;
+const RELAY_WS_URL = 'ws://boot1.voryn.bitstack.website:4001/ws';
 
 type NetworkStatus = 'disconnected' | 'connecting' | 'connected';
 type MessageHandler = (fromPeerId: string, dataHex: string, messageId: string) => void;
-type PeerHandler = (peerId: string) => void;
+type PeerHandler = (peerId: string, online?: boolean) => void;
 type ErrorHandler = (message: string) => void;
+type StatusHandler = (status: NetworkStatus) => void;
 
+let ws: WebSocket | null = null;
 let networkStatus: NetworkStatus = 'disconnected';
-let localPeerId: string | null = null;
-let connectedPeers: Set<string> = new Set();
+let registeredPeerId: string | null = null;
+let onlinePeers: Set<string> = new Set();
 let messageHandlers: MessageHandler[] = [];
-let peerConnectHandlers: PeerHandler[] = [];
+let peerHandlers: PeerHandler[] = [];
 let errorHandlers: ErrorHandler[] = [];
+let statusHandlers: StatusHandler[] = [];
 let recentErrors: string[] = [];
-let pollTimer: ReturnType<typeof setInterval> | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let pingTimer: ReturnType<typeof setInterval> | null = null;
+
+function setStatus(status: NetworkStatus) {
+  networkStatus = status;
+  for (const h of statusHandlers) h(status);
+}
+
+function recordError(msg: string) {
+  recentErrors = [...recentErrors.slice(-19), msg];
+  for (const h of errorHandlers) h(msg);
+}
 
 // ── Public API ────────────────────────────────────────────────────
 
@@ -37,170 +48,193 @@ export function getStatus(): NetworkStatus {
 }
 
 export function getPeerCount(): number {
-  return connectedPeers.size;
+  return onlinePeers.size;
 }
 
 export function getLocalPeerId(): string | null {
-  return localPeerId;
+  return registeredPeerId;
+}
+
+export function getOnlinePeers(): string[] {
+  return Array.from(onlinePeers);
+}
+
+export function isPeerOnline(peerId: string): boolean {
+  return onlinePeers.has(peerId);
+}
+
+export function getRecentErrors(): string[] {
+  return [...recentErrors];
 }
 
 export function getBootstrapInfo(): { peers: string[]; connected: boolean } {
-  return { peers: BOOTSTRAP_PEERS, connected: networkStatus === 'connected' };
+  return { peers: [RELAY_WS_URL], connected: networkStatus === 'connected' };
 }
 
-/** Register a handler for inbound messages. Returns an unsubscribe function. */
 export function onMessage(handler: MessageHandler): () => void {
   messageHandlers.push(handler);
   return () => { messageHandlers = messageHandlers.filter((h) => h !== handler); };
 }
 
-/** Register a handler for peer connection events. Returns an unsubscribe function. */
 export function onPeerConnected(handler: PeerHandler): () => void {
-  peerConnectHandlers.push(handler);
-  return () => { peerConnectHandlers = peerConnectHandlers.filter((h) => h !== handler); };
+  peerHandlers.push(handler);
+  return () => { peerHandlers = peerHandlers.filter((h) => h !== handler); };
 }
 
-/** Register a handler for network error events. Returns an unsubscribe function. */
+export function onPeerChange(handler: PeerHandler): () => void {
+  return onPeerConnected(handler);
+}
+
 export function onError(handler: ErrorHandler): () => void {
   errorHandlers.push(handler);
   return () => { errorHandlers = errorHandlers.filter((h) => h !== handler); };
 }
 
-/** Return buffered errors (persisted even before any handler subscribes). */
-export function getRecentErrors(): string[] {
-  return [...recentErrors];
+export function onStatusChange(handler: StatusHandler): () => void {
+  statusHandlers.push(handler);
+  return () => { statusHandlers = statusHandlers.filter((h) => h !== handler); };
 }
 
 /**
- * Start the Rust libp2p node and begin polling for events.
+ * Connect to the relay node and register our identity.
  * Safe to call multiple times — no-ops if already connected.
  */
 export async function connect(): Promise<void> {
-  if (networkStatus !== 'disconnected') return;
-  networkStatus = 'connecting';
+  if (networkStatus === 'connected' || networkStatus === 'connecting') return;
 
-  try {
-    const peerId = await VorynBridge.startNetwork(BOOTSTRAP_PEERS);
-    localPeerId = peerId;
-    networkStatus = 'connected';
-    startPolling();
-  } catch (e) {
-    networkStatus = 'disconnected';
-    throw e;
-  }
+  const identity = await VorynBridge.loadIdentity();
+  if (!identity) throw new Error('No identity — create one first');
+
+  registeredPeerId = identity.publicKeyHex;
+  setStatus('connecting');
+
+  return new Promise((resolve, reject) => {
+    try {
+      ws = new WebSocket(RELAY_WS_URL);
+
+      ws.onopen = () => {
+        ws?.send(JSON.stringify({ type: 'register', peer_id: registeredPeerId }));
+        setStatus('connected');
+
+        if (pingTimer) clearInterval(pingTimer);
+        pingTimer = setInterval(() => {
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 30000);
+
+        resolve();
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          handleServerMessage(JSON.parse(event.data as string));
+        } catch (e) {
+          console.warn('[Network] Failed to parse message:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        setStatus('disconnected');
+        onlinePeers.clear();
+        if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(() => {
+          connect().catch(() => {});
+        }, 5000);
+      };
+
+      ws.onerror = () => {
+        const msg = 'WebSocket connection failed';
+        recordError(msg);
+        if (networkStatus === 'connecting') {
+          setStatus('disconnected');
+          reject(new Error(msg));
+        }
+      };
+    } catch (e) {
+      setStatus('disconnected');
+      reject(e);
+    }
+  });
 }
 
-/** Stop the node and cancel the event poll timer. */
-export async function disconnect(): Promise<void> {
-  stopPolling();
-  await VorynBridge.stopNetwork();
-  networkStatus = 'disconnected';
-  localPeerId = null;
-  connectedPeers.clear();
+/** Stop the relay connection and cancel auto-reconnect. */
+export function disconnect(): void {
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+  if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
+  if (ws) { ws.close(); ws = null; }
+  setStatus('disconnected');
+  onlinePeers.clear();
 }
 
 /**
- * Send an encrypted message to a peer.
- * `plaintext` is UTF-8; it will be hex-encoded and passed to the Rust node.
- * In a later session the plaintext will be encrypted with the Double Ratchet
- * before being handed off here.
+ * Send a message to a peer via the relay.
+ * Returns true if the message was sent, false if not connected.
  */
-export async function sendToPeer(
-  recipientPeerId: string,
-  plaintext: string,
-): Promise<string> {
-  const messageId = generateMessageId();
+export function sendToPeer(
+  recipientPubkeyHex: string,
+  payload: string,
+  messageId: string,
+): boolean {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return false;
 
-  // Encode plaintext as hex (TODO: replace with Double Ratchet encryption)
-  const encoder = new TextEncoder();
-  const bytes = encoder.encode(plaintext);
-  const dataHex = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
-
-  await VorynBridge.sendRawToPeer(recipientPeerId, dataHex);
-
-  // Also persist locally via VorynBridge message storage
-  await VorynBridge.sendMessage(recipientPeerId, plaintext);
-
-  return messageId;
+  ws.send(JSON.stringify({
+    type: 'send',
+    to: recipientPubkeyHex,
+    payload,
+    message_id: messageId,
+  }));
+  return true;
 }
 
-/**
- * Check if a peer is currently connected.
- */
-export function isPeerOnline(peerId: string): boolean {
-  return connectedPeers.has(peerId);
-}
+// ── Internal ──────────────────────────────────────────────────────
 
-// ── Event polling ─────────────────────────────────────────────────
-
-function startPolling(): void {
-  if (pollTimer !== null) return;
-  pollTimer = setInterval(drainEventQueue, POLL_INTERVAL_MS);
-}
-
-function stopPolling(): void {
-  if (pollTimer !== null) {
-    clearInterval(pollTimer);
-    pollTimer = null;
-  }
-}
-
-async function drainEventQueue(): Promise<void> {
-  // Drain all queued events in one poll cycle.
-  let event = await VorynBridge.pollNetworkEvent();
-  while (event !== null) {
-    handleEvent(event);
-    event = await VorynBridge.pollNetworkEvent();
-  }
-}
-
-function handleEvent(event: VorynBridge.NetworkEvent): void {
-  switch (event.type) {
-    case 'started':
-      // Node is now listening; update local peer ID if provided
-      if (event.peer_id) localPeerId = event.peer_id;
-      break;
-
-    case 'discovered':
-      // Peer found via mDNS or DHT — may or may not be connected yet
-      break;
-
-    case 'connected':
-      connectedPeers.add(event.peer_id);
-      for (const h of peerConnectHandlers) h(event.peer_id);
-      break;
-
-    case 'disconnected':
-      connectedPeers.delete(event.peer_id);
+function handleServerMessage(data: any) {
+  switch (data.type) {
+    case 'server_hello':
       break;
 
     case 'message':
-      if (event.data_hex) {
-        const msgId = generateMessageId();
-        for (const h of messageHandlers) h(event.peer_id, event.data_hex, msgId);
-        decryptAndStore(event.data_hex, msgId).catch(console.warn);
+      if (data.payload) {
+        const msgId = data.message_id || generateMessageId();
+        for (const h of messageHandlers) h(data.from, data.payload, msgId);
+        storeIncoming(data.from, data.payload, msgId).catch(console.warn);
       }
       break;
 
+    case 'ack':
+      break;
+
+    case 'peer_online':
+      if (data.peer_id && data.peer_id !== registeredPeerId) {
+        onlinePeers.add(data.peer_id);
+        for (const h of peerHandlers) h(data.peer_id, true);
+      }
+      break;
+
+    case 'peer_offline':
+      if (data.peer_id) {
+        onlinePeers.delete(data.peer_id);
+        for (const h of peerHandlers) h(data.peer_id, false);
+      }
+      break;
+
+    case 'pong':
+      break;
+
     case 'error': {
-      const errMsg = event.message ?? 'Unknown network error';
-      console.warn('[Network] Error event:', errMsg);
-      recentErrors = [...recentErrors.slice(-19), errMsg];
-      for (const h of errorHandlers) h(errMsg);
+      const msg = data.message ?? 'Unknown relay error';
+      recordError(msg);
       break;
     }
   }
 }
 
-async function decryptAndStore(envelopeHex: string, msgId: string): Promise<void> {
-  const identity = await VorynBridge.loadIdentity();
-  if (!identity) return;
-  const result = await VorynBridge.decryptMessage(envelopeHex, identity.secretKeySeedHex);
-  if (!result) return;
-  await VorynBridge.receiveMessage(result.senderPk, result.plaintext, msgId);
+async function storeIncoming(fromPubkey: string, payload: string, msgId: string): Promise<void> {
+  await VorynBridge.receiveMessage(fromPubkey, payload, msgId);
 }
-
-// ── Helpers ───────────────────────────────────────────────────────
 
 function generateMessageId(): string {
   const bytes = new Uint8Array(16);
