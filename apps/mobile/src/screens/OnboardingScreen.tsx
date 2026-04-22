@@ -11,6 +11,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
+import { Logo } from '../components/Logo';
+import { colors } from '../theme/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
 
@@ -55,9 +57,10 @@ export const OnboardingScreen: React.FC = () => {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
 
-      <View style={styles.logoContainer}>
-        <Text style={styles.title}>Voryn</Text>
-        <Text style={styles.subtitle}>Private. Encrypted. Unreachable.</Text>
+      <View style={styles.header}>
+        <Logo size={86} />
+        <Text style={styles.wordmark}>VORYN</Text>
+        <Text style={styles.tagline}>PEER · MESH · UNCENSORABLE</Text>
       </View>
 
       <View style={styles.buttonContainer}>
@@ -97,15 +100,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 24,
   },
-  logoContainer: { alignItems: 'center', marginBottom: 80 },
-  title: { fontSize: 52, fontWeight: '700', color: '#FFFFFF', letterSpacing: 6 },
-  subtitle: {
-    fontSize: 13,
-    color: '#666666',
-    marginTop: 12,
-    letterSpacing: 3,
-    textTransform: 'uppercase',
-  },
+  header: { alignItems: 'center', marginTop: 80 },
+  wordmark: { fontSize: 36, fontWeight: '700', letterSpacing: 6, color: colors.textPrimary, marginTop: 18 },
+  tagline: { fontSize: 11, letterSpacing: 3, color: colors.accent, marginTop: 10, fontFamily: 'Menlo' },
   buttonContainer: { width: '100%', alignItems: 'center' },
   button: {
     backgroundColor: '#FFFFFF',

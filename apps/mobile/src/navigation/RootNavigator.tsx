@@ -13,6 +13,7 @@ import { ScanQRScreen } from '../screens/ScanQRScreen';
 import { PasscodeLockScreen } from '../screens/PasscodeLockScreen';
 import { PasscodeSetupPrompt } from '../screens/PasscodeSetupPrompt';
 import * as PasscodeService from '../services/PasscodeService';
+import { SplashScreen } from '../screens/SplashScreen';
 
 export type RootStackParamList = {
   Onboarding: undefined;
@@ -31,6 +32,7 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export const RootNavigator: React.FC = () => {
+  const [showSplash, setShowSplash] = useState(true);
   const [isReady, setIsReady] = useState(false);
   const [hasPasscode, setHasPasscode] = useState(false);
   const [isLocked, setIsLocked] = useState(true);
@@ -44,6 +46,10 @@ export const RootNavigator: React.FC = () => {
     };
     init();
   }, []);
+
+  if (showSplash) {
+    return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  }
 
   if (!isReady) return null;
 
