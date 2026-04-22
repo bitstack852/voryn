@@ -12,7 +12,6 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as PasscodeService from '../services/PasscodeService';
 import * as VorynBridge from '../services/VorynBridge';
-import { Logo } from '../components/Logo';
 import { colors } from '../theme/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'PasscodeLock'>;
@@ -56,9 +55,8 @@ export const PasscodeLockScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <Logo size={64} />
-      <Text style={styles.title}>VORYN</Text>
-      <Text style={styles.subtitle}>Enter passcode to unlock</Text>
+      <Text style={styles.wordmark}>VORYN</Text>
+      <Text style={styles.subtitle}>// enter passcode</Text>
 
       <TextInput
         style={[styles.input, error && styles.inputError]}
@@ -89,17 +87,16 @@ export const PasscodeLockScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  title: { fontSize: 28, fontWeight: '700', color: colors.textPrimary, letterSpacing: 6, marginTop: 16 },
-  subtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 6, fontFamily: 'Menlo' },
+  container: { flex: 1, backgroundColor: '#050608', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  wordmark: { fontSize: 36, fontWeight: '800', letterSpacing: 10, color: colors.textPrimary },
+  subtitle: { marginTop: 10, color: colors.textMuted, fontSize: 11, letterSpacing: 3, fontFamily: 'Menlo' },
   input: {
     backgroundColor: colors.surface, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 16,
     color: colors.textPrimary, fontSize: 24, textAlign: 'center', letterSpacing: 8, width: '100%',
-    marginTop: 40, borderWidth: 1, borderColor: colors.borderLight,
+    marginTop: 48, borderWidth: 1, borderColor: colors.borderLight,
   },
   inputError: { borderColor: colors.error },
-  errorText: { color: colors.error, fontSize: 13, marginTop: 8 },
+  errorText: { color: colors.error, fontSize: 13, marginTop: 8, fontFamily: 'Menlo' },
   button: { backgroundColor: colors.textPrimary, paddingVertical: 16, paddingHorizontal: 48, borderRadius: 12, marginTop: 24, width: '100%', alignItems: 'center' },
   buttonText: { fontSize: 16, fontWeight: '600', color: colors.background },
 });
-
