@@ -28,6 +28,8 @@ export interface Contact {
   addedAt: string;
   lastSeen: string | null;
   isVerified: boolean;
+  status: 'approved' | 'pending_sent' | 'pending_received' | 'denied';
+  introMessage: string | null;
 }
 
 export interface StoredMessage {
@@ -36,8 +38,17 @@ export interface StoredMessage {
   senderPubkeyHex: string;
   plaintext: string;
   timestamp: number;
-  status: 'pending' | 'sent' | 'delivered' | 'failed';
+  status: 'pending' | 'sent' | 'delivered' | 'failed' | 'read';
   isMine: boolean;
+}
+
+export interface Conversation {
+  contactPubkeyHex: string;
+  displayName: string | null;
+  conversationId: string;
+  lastMessageText: string;
+  lastMessageTimestamp: number;
+  unreadCount: number;
 }
 
 // ── Storage Keys ──────────────────────────────────────────────────
@@ -47,12 +58,9 @@ const STORAGE_KEYS = {
   CONTACTS: '@voryn/contacts',
   MESSAGES: '@voryn/messages',
   MIGRATION_V2: '@voryn/migrated_v2',
+  INVITE_TOKENS: '@voryn/invite_tokens',
 };
 
-/**
- * One-time migration: wipe plaintext messages stored before encryption was
- * wired end-to-end. Call once on app start via loadIdentity or App.tsx.
- */
 export async function migrateWipePlaintextMessages(): Promise<void> {
   const already = await AsyncStorage.getItem(STORAGE_KEYS.MIGRATION_V2);
   if (already) return;
@@ -64,11 +72,9 @@ export async function migrateWipePlaintextMessages(): Promise<void> {
 
 function generateRandomBytes(length: number): Uint8Array {
   const bytes = new Uint8Array(length);
-  // React Native has crypto.getRandomValues in Hermes/JSC
   if (typeof globalThis.crypto !== 'undefined' && globalThis.crypto.getRandomValues) {
     globalThis.crypto.getRandomValues(bytes);
   } else {
-    // Fallback for environments without crypto
     for (let i = 0; i < length; i++) {
       bytes[i] = Math.floor(Math.random() * 256);
     }
@@ -112,7 +118,6 @@ export async function generateIdentity(): Promise<Identity> {
       publicKeyHex = data.public_key_hex;
       secretKeySeedHex = data.secret_key_seed_hex;
     } catch {
-      // Fall back to JS
       publicKeyHex = bytesToHex(generateRandomBytes(32));
       secretKeySeedHex = bytesToHex(generateRandomBytes(32));
     }
@@ -170,16 +175,12 @@ export async function deleteIdentity(): Promise<void> {
     STORAGE_KEYS.IDENTITY,
     STORAGE_KEYS.CONTACTS,
     STORAGE_KEYS.MESSAGES,
+    STORAGE_KEYS.INVITE_TOKENS,
   ]);
 }
 
-// ── Network ───────────────────────────────────────────────────────
+// ── Network (legacy stubs — transport is WebSocket in NetworkService) ──
 
-/**
- * Start the libp2p P2P node via the Rust native module.
- * The node runs on a background Tokio thread inside the Rust library.
- * Returns the libp2p PeerId string on success.
- */
 export async function startNetwork(bootstrapPeers: string[]): Promise<string> {
   const identity = await loadIdentity();
   const keypairSeedHex = identity?.secretKeySeedHex ?? '';
@@ -201,17 +202,12 @@ export async function startNetwork(bootstrapPeers: string[]): Promise<string> {
       throw new Error(`Failed to start node: ${e}`);
     }
   }
-  // JS-only fallback: simulate a peer ID from the identity key
   return identity?.publicKeyHex?.slice(0, 32) ?? 'js-fallback-peer';
 }
 
 export async function stopNetwork(): Promise<void> {
   if (hasRustBridge) {
-    try {
-      await VorynCore.stopNode();
-    } catch {
-      // Ignore — node may not be running
-    }
+    try { await VorynCore.stopNode(); } catch { /* ignore */ }
   }
 }
 
@@ -224,27 +220,13 @@ export async function getNetworkStatus(): Promise<{
     try {
       const json: string = await VorynCore.nodeStatus();
       const s = JSON.parse(json);
-      return {
-        status: s.running ? 'connected' : 'disconnected',
-        peerCount: 0,
-        peerId: s.peer_id ?? null,
-      };
-    } catch {
-      // Fall through
-    }
+      return { status: s.running ? 'connected' : 'disconnected', peerCount: 0, peerId: s.peer_id ?? null };
+    } catch { /* fall through */ }
   }
   const identity = await loadIdentity();
-  return {
-    status: 'disconnected',
-    peerCount: 0,
-    peerId: identity?.publicKeyHex?.slice(0, 16) ?? null,
-  };
+  return { status: 'disconnected', peerCount: 0, peerId: identity?.publicKeyHex?.slice(0, 16) ?? null };
 }
 
-/**
- * Poll for the next network event from the Rust node (non-blocking).
- * Returns null if the queue is empty.
- */
 export async function pollNetworkEvent(): Promise<NetworkEvent | null> {
   if (!hasRustBridge) return null;
   try {
@@ -256,7 +238,7 @@ export async function pollNetworkEvent(): Promise<NetworkEvent | null> {
   }
 }
 
-// ── Encryption ───────────────────────────────────────────────────
+// ── Encryption ────────────────────────────────────────────────────
 
 export async function encryptMessage(
   plaintext: string,
@@ -300,14 +282,8 @@ export async function peerIdFromPublicKey(publicKeyHex: string): Promise<string 
   }
 }
 
-/**
- * Send raw encrypted bytes to a peer via the Rust node.
- * `dataHex` must be a hex-encoded string of the ciphertext.
- */
 export async function sendRawToPeer(peerId: string, dataHex: string): Promise<void> {
-  if (!hasRustBridge) {
-    throw new Error('Native bridge not available');
-  }
+  if (!hasRustBridge) throw new Error('Native bridge not available');
   const resultJson: string = await VorynCore.sendMessage(peerId, dataHex);
   const result = JSON.parse(resultJson);
   if (!result.ok) throw new Error(result.error ?? 'Send failed');
@@ -315,20 +291,14 @@ export async function sendRawToPeer(peerId: string, dataHex: string): Promise<vo
 
 // ── Network event type ────────────────────────────────────────────
 
-export type NetworkEventType =
-  | 'started'
-  | 'discovered'
-  | 'connected'
-  | 'disconnected'
-  | 'message'
-  | 'error';
+export type NetworkEventType = 'started' | 'discovered' | 'connected' | 'disconnected' | 'message' | 'error';
 
 export interface NetworkEvent {
   type: NetworkEventType;
   peer_id: string;
-  addrs?: string[];      // present on 'started'
-  data_hex?: string;     // present on 'message'
-  message?: string;      // present on 'error'
+  addrs?: string[];
+  data_hex?: string;
+  message?: string;
 }
 
 // ── Contacts ──────────────────────────────────────────────────────
@@ -337,7 +307,13 @@ async function loadContactsFromStorage(): Promise<Contact[]> {
   try {
     const stored = await AsyncStorage.getItem(STORAGE_KEYS.CONTACTS);
     if (!stored) return [];
-    return JSON.parse(stored);
+    const contacts = JSON.parse(stored);
+    // Migrate legacy contacts that don't have status field
+    return contacts.map((c: any) => ({
+      ...c,
+      status: c.status ?? 'approved',
+      introMessage: c.introMessage ?? null,
+    }));
   } catch {
     return [];
   }
@@ -350,13 +326,10 @@ async function saveContactsToStorage(contacts: Contact[]): Promise<void> {
 export async function addContact(
   publicKeyHex: string,
   displayName?: string,
+  introMessage?: string,
 ): Promise<void> {
   const contacts = await loadContactsFromStorage();
-
-  // Don't add duplicates
-  if (contacts.some((c) => c.publicKeyHex === publicKeyHex)) {
-    return;
-  }
+  if (contacts.some((c) => c.publicKeyHex === publicKeyHex)) return;
 
   contacts.push({
     publicKeyHex,
@@ -364,19 +337,115 @@ export async function addContact(
     addedAt: new Date().toISOString(),
     lastSeen: null,
     isVerified: false,
+    status: 'pending_sent',
+    introMessage: introMessage ?? null,
   });
-
   await saveContactsToStorage(contacts);
+
+  await sendContactRequest(publicKeyHex, displayName ?? null, introMessage ?? null);
+}
+
+async function sendContactRequest(
+  recipientPubkeyHex: string,
+  displayName: string | null,
+  introMessage: string | null,
+): Promise<void> {
+  const identity = await loadIdentity();
+  if (!identity || !hasRustBridge) return;
+
+  const payload = JSON.stringify({ t: 'creq', name: displayName, intro: introMessage });
+
+  try {
+    const encrypted = await encryptMessage(
+      payload,
+      identity.secretKeySeedHex,
+      identity.publicKeyHex,
+      recipientPubkeyHex,
+    );
+    if (!encrypted) return;
+
+    const NetworkService = require('./NetworkService');
+    NetworkService.sendToPeer(recipientPubkeyHex, encrypted.envelopeHex, generateMessageId());
+  } catch {
+    // Will retry on reconnect via flushPendingContactRequests
+  }
+}
+
+export async function flushPendingContactRequests(): Promise<void> {
+  const contacts = await loadContactsFromStorage();
+  for (const contact of contacts.filter((c) => c.status === 'pending_sent')) {
+    await sendContactRequest(contact.publicKeyHex, contact.displayName, contact.introMessage);
+  }
+}
+
+export async function receiveContactRequest(
+  senderPubkeyHex: string,
+  displayName: string | null,
+  introMessage: string | null,
+): Promise<void> {
+  const contacts = await loadContactsFromStorage();
+  const existing = contacts.find((c) => c.publicKeyHex === senderPubkeyHex);
+
+  if (existing) {
+    if (existing.status === 'approved') return;
+    if (existing.status === 'pending_sent') {
+      // Mutual request — auto-approve
+      existing.status = 'approved';
+      await saveContactsToStorage(contacts);
+      return;
+    }
+    if (existing.status === 'pending_received') return;
+    // Was denied — allow re-request
+    existing.status = 'pending_received';
+    existing.introMessage = introMessage;
+    if (displayName) existing.displayName = displayName;
+    await saveContactsToStorage(contacts);
+    return;
+  }
+
+  contacts.push({
+    publicKeyHex: senderPubkeyHex,
+    displayName: displayName ?? null,
+    addedAt: new Date().toISOString(),
+    lastSeen: null,
+    isVerified: false,
+    status: 'pending_received',
+    introMessage: introMessage ?? null,
+  });
+  await saveContactsToStorage(contacts);
+}
+
+export async function approveContact(pubkeyHex: string): Promise<void> {
+  const contacts = await loadContactsFromStorage();
+  const idx = contacts.findIndex((c) => c.publicKeyHex === pubkeyHex);
+  if (idx !== -1) {
+    contacts[idx].status = 'approved';
+    await saveContactsToStorage(contacts);
+  }
+}
+
+export async function denyContact(pubkeyHex: string): Promise<void> {
+  const contacts = await loadContactsFromStorage();
+  await saveContactsToStorage(contacts.filter((c) => c.publicKeyHex !== pubkeyHex));
 }
 
 export async function getContacts(): Promise<Contact[]> {
   return loadContactsFromStorage();
 }
 
+export async function getApprovedContacts(): Promise<Contact[]> {
+  const all = await loadContactsFromStorage();
+  return all.filter((c) => c.status === 'approved');
+}
+
+export async function getPendingReceivedContacts(): Promise<Contact[]> {
+  const all = await loadContactsFromStorage();
+  return all.filter((c) => c.status === 'pending_received');
+}
+
 export async function removeContact(publicKeyHex: string): Promise<void> {
   const contacts = await loadContactsFromStorage();
-  const filtered = contacts.filter((c) => c.publicKeyHex !== publicKeyHex);
-  await saveContactsToStorage(filtered);
+  await saveContactsToStorage(contacts.filter((c) => c.publicKeyHex !== publicKeyHex));
 }
 
 // ── Messages ──────────────────────────────────────────────────────
@@ -416,7 +485,6 @@ export async function sendMessage(
   };
 
   const allMessages = await loadMessagesFromStorage();
-  // Remove any prior failed attempts with the same content so retries don't stack up
   const deduped = allMessages.filter(
     (m) => !(m.conversationId === conversationId && m.plaintext === plaintext && m.status === 'failed'),
   );
@@ -431,15 +499,16 @@ export async function sendMessage(
   }
 
   try {
+    // Wrap in protocol envelope so receiver can distinguish msg types
+    const envelope = JSON.stringify({ t: 'msg', text: plaintext });
     const encrypted = await encryptMessage(
-      plaintext,
+      envelope,
       identity.secretKeySeedHex,
       identity.publicKeyHex,
       recipientPubkeyHex,
     );
     if (!encrypted) throw new Error('Encryption failed');
 
-    // Import here to avoid circular dependency — NetworkService imports VorynBridge
     const NetworkService = require('./NetworkService');
     const sent = NetworkService.sendToPeer(recipientPubkeyHex, encrypted.envelopeHex, messageId);
 
@@ -456,6 +525,31 @@ export async function sendMessage(
   }
 
   return messageId;
+}
+
+export async function storeIncomingMessage(
+  senderPubkeyHex: string,
+  text: string,
+  messageId: string,
+): Promise<void> {
+  const identity = await loadIdentity();
+  if (!identity) return;
+
+  const allMessages = await loadMessagesFromStorage();
+  if (allMessages.some((m) => m.messageId === messageId)) return;
+
+  const conversationId = [identity.publicKeyHex, senderPubkeyHex].sort().join(':');
+
+  allMessages.push({
+    messageId,
+    conversationId,
+    senderPubkeyHex,
+    plaintext: text,
+    timestamp: Date.now(),
+    status: 'delivered',
+    isMine: false,
+  });
+  await saveMessagesToStorage(allMessages);
 }
 
 export async function updateMessageStatus(
@@ -475,48 +569,6 @@ export async function deleteMessage(messageId: string): Promise<void> {
   await saveMessagesToStorage(msgs.filter((m) => m.messageId !== messageId));
 }
 
-/**
- * Receive an encrypted envelope from the relay (called by NetworkService).
- * Decrypts via Rust bridge before storing. Discards if decryption fails.
- */
-export async function receiveMessage(
-  senderPubkeyHex: string,
-  envelopeHex: string,
-  messageId: string,
-): Promise<void> {
-  const identity = await loadIdentity();
-  if (!identity) return;
-
-  // Don't store duplicates
-  const allMessages = await loadMessagesFromStorage();
-  if (allMessages.some((m) => m.messageId === messageId)) return;
-
-  let plaintext: string;
-  if (hasRustBridge) {
-    const result = await decryptMessage(envelopeHex, identity.secretKeySeedHex);
-    if (!result) return; // Decryption failed — discard
-    plaintext = result.plaintext;
-  } else {
-    // No bridge — cannot decrypt, discard
-    return;
-  }
-
-  const conversationId = [identity.publicKeyHex, senderPubkeyHex].sort().join(':');
-
-  const message: StoredMessage = {
-    messageId,
-    conversationId,
-    senderPubkeyHex,
-    plaintext,
-    timestamp: Date.now(),
-    status: 'delivered',
-    isMine: false,
-  };
-
-  allMessages.push(message);
-  await saveMessagesToStorage(allMessages);
-}
-
 export async function getMessages(
   conversationId: string,
   _limit: number = 50,
@@ -528,10 +580,73 @@ export async function getMessages(
     .sort((a, b) => b.timestamp - a.timestamp);
 }
 
-export async function getConversationId(
-  contactPubkeyHex: string,
-): Promise<string> {
+export async function getConversationId(contactPubkeyHex: string): Promise<string> {
   const identity = await loadIdentity();
   if (!identity) throw new Error('No identity');
   return [identity.publicKeyHex, contactPubkeyHex].sort().join(':');
+}
+
+export async function getConversations(): Promise<Conversation[]> {
+  const identity = await loadIdentity();
+  if (!identity) return [];
+
+  const allMessages = await loadMessagesFromStorage();
+  const contacts = await loadContactsFromStorage();
+
+  const convMap = new Map<string, StoredMessage[]>();
+  for (const msg of allMessages) {
+    const arr = convMap.get(msg.conversationId) ?? [];
+    arr.push(msg);
+    convMap.set(msg.conversationId, arr);
+  }
+
+  const conversations: Conversation[] = [];
+  for (const [convId, msgs] of convMap.entries()) {
+    const parts = convId.split(':');
+    const contactPubkey = parts.find((p) => p !== identity.publicKeyHex) ?? '';
+    const contact = contacts.find((c) => c.publicKeyHex === contactPubkey);
+
+    const sorted = [...msgs].sort((a, b) => b.timestamp - a.timestamp);
+    const last = sorted[0];
+    const unread = msgs.filter((m) => !m.isMine && m.status !== 'read').length;
+
+    conversations.push({
+      contactPubkeyHex: contactPubkey,
+      displayName: contact?.displayName ?? null,
+      conversationId: convId,
+      lastMessageText: last.plaintext,
+      lastMessageTimestamp: last.timestamp,
+      unreadCount: unread,
+    });
+  }
+
+  return conversations.sort((a, b) => b.lastMessageTimestamp - a.lastMessageTimestamp);
+}
+
+export async function markConversationRead(conversationId: string): Promise<void> {
+  const msgs = await loadMessagesFromStorage();
+  let changed = false;
+  for (const msg of msgs) {
+    if (msg.conversationId === conversationId && !msg.isMine && msg.status !== 'read') {
+      msg.status = 'read';
+      changed = true;
+    }
+  }
+  if (changed) await saveMessagesToStorage(msgs);
+}
+
+// ── Invite Links ──────────────────────────────────────────────────
+
+export async function generateInviteLink(): Promise<string> {
+  const identity = await loadIdentity();
+  if (!identity) throw new Error('No identity');
+
+  const token = bytesToHex(generateRandomBytes(8));
+
+  const stored = await AsyncStorage.getItem(STORAGE_KEYS.INVITE_TOKENS);
+  const tokens: string[] = stored ? JSON.parse(stored) : [];
+  tokens.push(token);
+  await AsyncStorage.setItem(STORAGE_KEYS.INVITE_TOKENS, JSON.stringify(tokens));
+
+  return `voryn://invite?from=${identity.publicKeyHex}&t=${token}`;
 }

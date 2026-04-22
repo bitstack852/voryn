@@ -13,7 +13,15 @@ const App: React.FC = () => {
       console.log('[App] Relay connection failed:', e);
     });
 
+    // Retry any unsent contact requests when relay connects
+    const unsubStatus = NetworkService.onStatusChange((status) => {
+      if (status === 'connected') {
+        VorynBridge.flushPendingContactRequests().catch(() => {});
+      }
+    });
+
     return () => {
+      unsubStatus();
       NetworkService.disconnect();
     };
   }, []);

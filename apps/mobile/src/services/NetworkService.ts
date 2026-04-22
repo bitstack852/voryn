@@ -5,6 +5,7 @@
  * - WebSocket connection to boot1.voryn.bitstack.website
  * - Peer registration (sends our public key)
  * - Message relay (send/receive encrypted messages)
+ * - Protocol message routing (contact_request, contact_accepted, contact_denied)
  * - Online peer tracking
  * - Auto-reconnect on disconnect
  */
@@ -14,11 +15,12 @@ import * as VorynBridge from './VorynBridge';
 const RELAY_WS_URL = 'ws://boot1.voryn.bitstack.website:4001/ws';
 
 type NetworkStatus = 'disconnected' | 'connecting' | 'connected';
-type MessageHandler = (fromPeerId: string, dataHex: string, messageId: string) => void;
+type MessageHandler = (fromPeerId: string, text: string, messageId: string) => void;
 type PeerHandler = (peerId: string, online?: boolean) => void;
 type ErrorHandler = (message: string) => void;
 type StatusHandler = (status: NetworkStatus) => void;
 type AckHandler = (messageId: string) => void;
+type ContactRequestHandler = (fromPubkey: string, data: Record<string, any>) => void;
 
 let ws: WebSocket | null = null;
 let networkStatus: NetworkStatus = 'disconnected';
@@ -29,6 +31,7 @@ let peerHandlers: PeerHandler[] = [];
 let errorHandlers: ErrorHandler[] = [];
 let statusHandlers: StatusHandler[] = [];
 let ackHandlers: AckHandler[] = [];
+let contactRequestHandlers: ContactRequestHandler[] = [];
 let recentErrors: string[] = [];
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -45,30 +48,12 @@ function recordError(msg: string) {
 
 // ── Public API ────────────────────────────────────────────────────
 
-export function getStatus(): NetworkStatus {
-  return networkStatus;
-}
-
-export function getPeerCount(): number {
-  return onlinePeers.size;
-}
-
-export function getLocalPeerId(): string | null {
-  return registeredPeerId;
-}
-
-export function getOnlinePeers(): string[] {
-  return Array.from(onlinePeers);
-}
-
-export function isPeerOnline(peerId: string): boolean {
-  return onlinePeers.has(peerId);
-}
-
-export function getRecentErrors(): string[] {
-  return [...recentErrors];
-}
-
+export function getStatus(): NetworkStatus { return networkStatus; }
+export function getPeerCount(): number { return onlinePeers.size; }
+export function getLocalPeerId(): string | null { return registeredPeerId; }
+export function getOnlinePeers(): string[] { return Array.from(onlinePeers); }
+export function isPeerOnline(peerId: string): boolean { return onlinePeers.has(peerId); }
+export function getRecentErrors(): string[] { return [...recentErrors]; }
 export function getBootstrapInfo(): { peers: string[]; connected: boolean } {
   return { peers: [RELAY_WS_URL], connected: networkStatus === 'connected' };
 }
@@ -102,10 +87,11 @@ export function onAck(handler: AckHandler): () => void {
   return () => { ackHandlers = ackHandlers.filter((h) => h !== handler); };
 }
 
-/**
- * Connect to the relay node and register our identity.
- * Safe to call multiple times — no-ops if already connected.
- */
+export function onContactRequest(handler: ContactRequestHandler): () => void {
+  contactRequestHandlers.push(handler);
+  return () => { contactRequestHandlers = contactRequestHandlers.filter((h) => h !== handler); };
+}
+
 export async function connect(): Promise<void> {
   if (networkStatus === 'connected' || networkStatus === 'connecting') return;
 
@@ -167,7 +153,6 @@ export async function connect(): Promise<void> {
   });
 }
 
-/** Stop the relay connection and cancel auto-reconnect. */
 export function disconnect(): void {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (pingTimer) { clearInterval(pingTimer); pingTimer = null; }
@@ -176,23 +161,9 @@ export function disconnect(): void {
   onlinePeers.clear();
 }
 
-/**
- * Send a message to a peer via the relay.
- * Returns true if the message was sent, false if not connected.
- */
-export function sendToPeer(
-  recipientPubkeyHex: string,
-  payload: string,
-  messageId: string,
-): boolean {
+export function sendToPeer(recipientPubkeyHex: string, payload: string, messageId: string): boolean {
   if (!ws || ws.readyState !== WebSocket.OPEN) return false;
-
-  ws.send(JSON.stringify({
-    type: 'send',
-    to: recipientPubkeyHex,
-    payload,
-    message_id: messageId,
-  }));
+  ws.send(JSON.stringify({ type: 'send', to: recipientPubkeyHex, payload, message_id: messageId }));
   return true;
 }
 
@@ -206,8 +177,7 @@ function handleServerMessage(data: any) {
     case 'message':
       if (data.payload) {
         const msgId = data.message_id || generateMessageId();
-        for (const h of messageHandlers) h(data.from, data.payload, msgId);
-        storeIncoming(data.from, data.payload, msgId).catch(console.warn);
+        processIncoming(data.from, data.payload, msgId).catch(console.warn);
       }
       break;
 
@@ -242,8 +212,44 @@ function handleServerMessage(data: any) {
   }
 }
 
-async function storeIncoming(fromPubkey: string, payload: string, msgId: string): Promise<void> {
-  await VorynBridge.receiveMessage(fromPubkey, payload, msgId);
+async function processIncoming(fromPubkey: string, envelopeHex: string, msgId: string): Promise<void> {
+  const identity = await VorynBridge.loadIdentity();
+  if (!identity) return;
+
+  const decrypted = await VorynBridge.decryptMessage(envelopeHex, identity.secretKeySeedHex);
+  if (!decrypted) return;
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(decrypted.plaintext);
+  } catch {
+    // Plain string — treat as chat message (pre-envelope legacy)
+    await VorynBridge.storeIncomingMessage(fromPubkey, decrypted.plaintext, msgId);
+    for (const h of messageHandlers) h(fromPubkey, decrypted.plaintext, msgId);
+    return;
+  }
+
+  switch (parsed.t) {
+    case 'msg':
+      await VorynBridge.storeIncomingMessage(fromPubkey, parsed.text ?? '', msgId);
+      for (const h of messageHandlers) h(fromPubkey, parsed.text ?? '', msgId);
+      break;
+
+    case 'creq':
+      await VorynBridge.receiveContactRequest(fromPubkey, parsed.name ?? null, parsed.intro ?? null);
+      for (const h of contactRequestHandlers) h(fromPubkey, parsed);
+      break;
+
+    case 'cacc':
+      await VorynBridge.approveContact(fromPubkey);
+      for (const h of contactRequestHandlers) h(fromPubkey, parsed);
+      break;
+
+    case 'cden':
+      await VorynBridge.denyContact(fromPubkey);
+      for (const h of contactRequestHandlers) h(fromPubkey, parsed);
+      break;
+  }
 }
 
 function generateMessageId(): string {

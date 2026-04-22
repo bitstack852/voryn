@@ -62,7 +62,7 @@ export const PasscodeLockScreen: React.FC = () => {
 
     const valid = await PasscodeService.verifyPasscode(passcode);
     if (valid) {
-      navigation.reset({ index: 0, routes: [{ name: 'Contacts' }] });
+      navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
     } else {
       const remaining = await PasscodeService.getRemainingAttempts();
       setError(`Incorrect passcode. ${remaining} attempts remaining.`);

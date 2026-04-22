@@ -27,10 +27,26 @@ export const ScanQRScreen: React.FC = () => {
   const device = useCameraDevice('back');
 
   const processVorynUri = useCallback(async (uri: string) => {
-    let pubkeyHex = uri.trim();
-    if (pubkeyHex.startsWith('voryn://')) {
-      pubkeyHex = pubkeyHex.replace('voryn://', '');
+    const trimmed = uri.trim();
+
+    // Invite link: voryn://invite?from=<pubkey>&t=<token>
+    if (trimmed.startsWith('voryn://invite')) {
+      try {
+        const url = new URL(trimmed.replace('voryn://', 'https://voryn.app/'));
+        const fromPubkey = url.searchParams.get('from') ?? '';
+        if (/^[0-9a-fA-F]{64}$/.test(fromPubkey)) {
+          navigation.navigate('InviteAccept', { fromPubkeyHex: fromPubkey, token: url.searchParams.get('t') ?? '' });
+        } else {
+          Alert.alert('Invalid Link', 'This invite link is not valid.');
+        }
+      } catch {
+        Alert.alert('Invalid Link', 'Could not parse this invite link.');
+      }
+      return;
     }
+
+    // Plain key or voryn://<pubkey>
+    let pubkeyHex = trimmed.startsWith('voryn://') ? trimmed.replace('voryn://', '') : trimmed;
     if (!/^[0-9a-fA-F]{64}$/.test(pubkeyHex)) {
       Alert.alert('Invalid Key', 'Not a valid Voryn public key.');
       return;
@@ -41,19 +57,25 @@ export const ScanQRScreen: React.FC = () => {
       return;
     }
     const contacts = await VorynBridge.getContacts();
-    if (contacts.some((c) => c.publicKeyHex === pubkeyHex)) {
-      Alert.alert('Already Added', 'This contact is already in your list.');
+    const existing = contacts.find((c) => c.publicKeyHex === pubkeyHex);
+    if (existing?.status === 'approved') {
+      Alert.alert('Already a Contact', 'This contact is already in your list.');
+      navigation.goBack();
+      return;
+    }
+    if (existing?.status === 'pending_sent') {
+      Alert.alert('Request Pending', 'You already sent a request to this person.');
       navigation.goBack();
       return;
     }
     setIsAdding(true);
     Alert.prompt(
-      'Add Contact',
-      'Enter a name for this contact:',
+      'Send Contact Request',
+      'Enter a name for this contact (optional):',
       async (name) => {
         await VorynBridge.addContact(pubkeyHex, name || undefined);
         setIsAdding(false);
-        Alert.alert('Contact Added', `${name || 'Contact'} has been added.`, [
+        Alert.alert('Request Sent', 'Contact request sent. You\'ll be notified when they respond.', [
           { text: 'OK', onPress: () => navigation.goBack() },
         ]);
       },

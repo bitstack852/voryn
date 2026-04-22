@@ -25,7 +25,7 @@ export const OnboardingScreen: React.FC = () => {
     const checkExisting = async () => {
       const existing = await VorynBridge.loadIdentity();
       if (existing) {
-        navigation.replace('Contacts');
+        navigation.replace('MainTabs');
         return;
       }
       setIsLoading(false);

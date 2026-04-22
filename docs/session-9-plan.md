@@ -206,7 +206,7 @@ Rust code exists in `voryn-protocol` (Shamir, group ledger, key management). UI 
 | TASK 2 — Fix encryption | ✅ Done |
 | TASK 3 — Message checkmarks | ✅ Done |
 | TASK 4 — Message delete | ✅ Done |
-| TASK 5 — Chats / Contacts split | ⬜ Not started |
-| TASK 6 — Contact request approval | ⬜ Not started |
-| TASK 7 — Invite links | ⬜ Not started |
+| TASK 5 — Chats / Contacts split | ✅ Done |
+| TASK 6 — Contact request approval | ✅ Done |
+| TASK 7 — Invite links | ✅ Done |
 | TASK 8 — Group chats | 🔵 Deferred |
