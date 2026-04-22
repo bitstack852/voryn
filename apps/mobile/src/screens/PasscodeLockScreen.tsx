@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,7 @@ import {
   TextInput,
   TouchableOpacity,
   Alert,
+  Animated,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,6 +22,30 @@ export const PasscodeLockScreen: React.FC = () => {
   const [passcode, setPasscode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
+
+  const offsetBlue = useRef(new Animated.Value(0)).current;
+  const offsetRed = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const glitch = Animated.loop(
+      Animated.sequence([
+        Animated.delay(2000),
+        Animated.parallel([
+          Animated.timing(offsetBlue, { toValue: 1, duration: 80, useNativeDriver: true }),
+          Animated.timing(offsetRed, { toValue: 1, duration: 80, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(offsetBlue, { toValue: 0, duration: 80, useNativeDriver: true }),
+          Animated.timing(offsetRed, { toValue: 0, duration: 80, useNativeDriver: true }),
+        ]),
+      ]),
+    );
+    glitch.start();
+    return () => glitch.stop();
+  }, []);
+
+  const blueX = offsetBlue.interpolate({ inputRange: [0, 1], outputRange: [2, 6] });
+  const redX = offsetRed.interpolate({ inputRange: [0, 1], outputRange: [-2, -6] });
 
   const handleSubmit = async () => {
     if (!passcode) return;
@@ -55,7 +80,15 @@ export const PasscodeLockScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.wordmark}>VORYN</Text>
+      <View style={styles.stack}>
+        <Animated.Text style={[styles.glitch, styles.blue, { transform: [{ translateX: blueX }] }]}>
+          VORYN
+        </Animated.Text>
+        <Animated.Text style={[styles.glitch, styles.red, { transform: [{ translateX: redX }] }]}>
+          VORYN
+        </Animated.Text>
+        <Text style={styles.glitch}>VORYN</Text>
+      </View>
       <Text style={styles.subtitle}>// enter passcode</Text>
 
       <TextInput
@@ -88,8 +121,11 @@ export const PasscodeLockScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#050608', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  wordmark: { fontSize: 36, fontWeight: '800', letterSpacing: 10, color: colors.textPrimary },
-  subtitle: { marginTop: 10, color: colors.textMuted, fontSize: 11, letterSpacing: 3, fontFamily: 'Menlo' },
+  stack: { width: 260, height: 48, alignItems: 'center', justifyContent: 'center' },
+  glitch: { position: 'absolute', fontSize: 36, fontWeight: '800', letterSpacing: 10, color: colors.textPrimary },
+  blue: { color: '#4A9EFF' },
+  red: { color: '#FF3B30' },
+  subtitle: { marginTop: 20, color: colors.textMuted, fontSize: 11, letterSpacing: 3, fontFamily: 'Menlo' },
   input: {
     backgroundColor: colors.surface, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 16,
     color: colors.textPrimary, fontSize: 24, textAlign: 'center', letterSpacing: 8, width: '100%',
