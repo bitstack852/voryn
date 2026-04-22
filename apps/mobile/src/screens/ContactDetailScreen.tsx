@@ -11,6 +11,7 @@ import { useRoute, useNavigation } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
+import { colors } from '../theme/colors';
 
 type DetailRoute = RouteProp<RootStackParamList, 'ContactDetail'>;
 
@@ -140,7 +141,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#1A3A5C',
+    backgroundColor: colors.accentDark,
     alignItems: 'center',
     justifyContent: 'center',
   },
