@@ -292,11 +292,11 @@ Bug fixes first, then features in dependency order:
 
 | Task | Status |
 |------|--------|
-| TASK 1 — Merge conflict | ⬜ Not started |
-| TASK 2 — Fix encryption | ⬜ Not started |
-| TASK 3 — Double splash | ⬜ Not started |
-| TASK 4 — Checkmarks | ⬜ Not started |
-| TASK 5 — Message delete | ⬜ Not started |
+| TASK 1 — Merge conflict | ✅ Done |
+| TASK 2 — Fix encryption | ✅ Done |
+| TASK 3 — Double splash | ✅ Done |
+| TASK 4 — Checkmarks | ✅ Done |
+| TASK 5 — Message delete | ✅ Done |
 | TASK 6 — Chats / Contacts split | ⬜ Not started |
 | TASK 7 — Contact request approval | ⬜ Not started |
 | TASK 8 — Invite links | ⬜ Not started |

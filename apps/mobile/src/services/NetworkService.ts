@@ -18,6 +18,7 @@ type MessageHandler = (fromPeerId: string, dataHex: string, messageId: string) =
 type PeerHandler = (peerId: string, online?: boolean) => void;
 type ErrorHandler = (message: string) => void;
 type StatusHandler = (status: NetworkStatus) => void;
+type AckHandler = (messageId: string) => void;
 
 let ws: WebSocket | null = null;
 let networkStatus: NetworkStatus = 'disconnected';
@@ -27,6 +28,7 @@ let messageHandlers: MessageHandler[] = [];
 let peerHandlers: PeerHandler[] = [];
 let errorHandlers: ErrorHandler[] = [];
 let statusHandlers: StatusHandler[] = [];
+let ackHandlers: AckHandler[] = [];
 let recentErrors: string[] = [];
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let pingTimer: ReturnType<typeof setInterval> | null = null;
@@ -93,6 +95,11 @@ export function onError(handler: ErrorHandler): () => void {
 export function onStatusChange(handler: StatusHandler): () => void {
   statusHandlers.push(handler);
   return () => { statusHandlers = statusHandlers.filter((h) => h !== handler); };
+}
+
+export function onAck(handler: AckHandler): () => void {
+  ackHandlers.push(handler);
+  return () => { ackHandlers = ackHandlers.filter((h) => h !== handler); };
 }
 
 /**
@@ -205,6 +212,9 @@ function handleServerMessage(data: any) {
       break;
 
     case 'ack':
+      if (data.message_id) {
+        for (const h of ackHandlers) h(data.message_id);
+      }
       break;
 
     case 'peer_online':

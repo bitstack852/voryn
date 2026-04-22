@@ -46,7 +46,19 @@ const STORAGE_KEYS = {
   IDENTITY: '@voryn/identity',
   CONTACTS: '@voryn/contacts',
   MESSAGES: '@voryn/messages',
+  MIGRATION_V2: '@voryn/migrated_v2',
 };
+
+/**
+ * One-time migration: wipe plaintext messages stored before encryption was
+ * wired end-to-end. Call once on app start via loadIdentity or App.tsx.
+ */
+export async function migrateWipePlaintextMessages(): Promise<void> {
+  const already = await AsyncStorage.getItem(STORAGE_KEYS.MIGRATION_V2);
+  if (already) return;
+  await AsyncStorage.removeItem(STORAGE_KEYS.MESSAGES);
+  await AsyncStorage.setItem(STORAGE_KEYS.MIGRATION_V2, '1');
+}
 
 // ── Crypto Helpers ────────────────────────────────────────────────
 
@@ -411,58 +423,85 @@ export async function sendMessage(
   deduped.push(message);
   await saveMessagesToStorage(deduped);
 
-  if (hasRustBridge) {
-    try {
-      const peerId = await peerIdFromPublicKey(recipientPubkeyHex);
-      if (!peerId) throw new Error('Could not derive PeerId from recipient public key');
+  if (!hasRustBridge) {
+    const msgs = await loadMessagesFromStorage();
+    const idx = msgs.findIndex((m) => m.messageId === messageId);
+    if (idx !== -1) { msgs[idx].status = 'failed'; await saveMessagesToStorage(msgs); }
+    return messageId;
+  }
 
-      const encrypted = await encryptMessage(
-        plaintext,
-        identity.secretKeySeedHex,
-        identity.publicKeyHex,
-        recipientPubkeyHex,
-      );
-      if (!encrypted) throw new Error('Encryption failed');
+  try {
+    const encrypted = await encryptMessage(
+      plaintext,
+      identity.secretKeySeedHex,
+      identity.publicKeyHex,
+      recipientPubkeyHex,
+    );
+    if (!encrypted) throw new Error('Encryption failed');
 
-      await sendRawToPeer(peerId, encrypted.envelopeHex);
+    // Import here to avoid circular dependency — NetworkService imports VorynBridge
+    const NetworkService = require('./NetworkService');
+    const sent = NetworkService.sendToPeer(recipientPubkeyHex, encrypted.envelopeHex, messageId);
 
-      const msgs = await loadMessagesFromStorage();
-      const idx = msgs.findIndex((m) => m.messageId === messageId);
-      if (idx !== -1) { msgs[idx].status = 'sent'; await saveMessagesToStorage(msgs); }
-    } catch {
-      const msgs = await loadMessagesFromStorage();
-      const idx = msgs.findIndex((m) => m.messageId === messageId);
-      if (idx !== -1) { msgs[idx].status = 'failed'; await saveMessagesToStorage(msgs); }
+    const msgs = await loadMessagesFromStorage();
+    const idx = msgs.findIndex((m) => m.messageId === messageId);
+    if (idx !== -1) {
+      msgs[idx].status = sent ? 'sent' : 'pending';
+      await saveMessagesToStorage(msgs);
     }
-  } else {
-    setTimeout(async () => {
-      const msgs = await loadMessagesFromStorage();
-      const idx = msgs.findIndex((m) => m.messageId === messageId);
-      if (idx !== -1) { msgs[idx].status = 'sent'; await saveMessagesToStorage(msgs); }
-    }, 500);
+  } catch {
+    const msgs = await loadMessagesFromStorage();
+    const idx = msgs.findIndex((m) => m.messageId === messageId);
+    if (idx !== -1) { msgs[idx].status = 'failed'; await saveMessagesToStorage(msgs); }
   }
 
   return messageId;
 }
 
+export async function updateMessageStatus(
+  messageId: string,
+  status: StoredMessage['status'],
+): Promise<void> {
+  const msgs = await loadMessagesFromStorage();
+  const idx = msgs.findIndex((m) => m.messageId === messageId);
+  if (idx !== -1) {
+    msgs[idx].status = status;
+    await saveMessagesToStorage(msgs);
+  }
+}
+
+export async function deleteMessage(messageId: string): Promise<void> {
+  const msgs = await loadMessagesFromStorage();
+  await saveMessagesToStorage(msgs.filter((m) => m.messageId !== messageId));
+}
+
 /**
- * Receive a message from the relay (called by NetworkService).
+ * Receive an encrypted envelope from the relay (called by NetworkService).
+ * Decrypts via Rust bridge before storing. Discards if decryption fails.
  */
 export async function receiveMessage(
   senderPubkeyHex: string,
-  plaintext: string,
+  envelopeHex: string,
   messageId: string,
 ): Promise<void> {
   const identity = await loadIdentity();
   if (!identity) return;
 
-  const conversationId = [identity.publicKeyHex, senderPubkeyHex].sort().join(':');
-
   // Don't store duplicates
   const allMessages = await loadMessagesFromStorage();
-  if (allMessages.some((m) => m.messageId === messageId)) {
+  if (allMessages.some((m) => m.messageId === messageId)) return;
+
+  let plaintext: string;
+  if (hasRustBridge) {
+    const result = await decryptMessage(envelopeHex, identity.secretKeySeedHex);
+    if (!result) return; // Decryption failed — discard
+    plaintext = result.plaintext;
+  } else {
+    // No bridge — cannot decrypt, discard
     return;
   }
+
+  const conversationId = [identity.publicKeyHex, senderPubkeyHex].sort().join(':');
 
   const message: StoredMessage = {
     messageId,
