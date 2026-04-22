@@ -63,19 +63,25 @@ impl NodeIdentity {
     fn load_or_create(path: &PathBuf) -> anyhow::Result<Self> {
         if path.exists() {
             let data = std::fs::read_to_string(path)?;
-            let identity: NodeIdentity = serde_json::from_str(&data)?;
-            info!("Loaded identity: {}", &identity.public_key_hex[..16]);
-            Ok(identity)
-        } else {
-            let identity = Self::generate();
-            let data = serde_json::to_string_pretty(&identity)?;
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
+            match serde_json::from_str::<NodeIdentity>(&data) {
+                Ok(identity) => {
+                    info!("Loaded identity: {}", &identity.public_key_hex[..16]);
+                    return Ok(identity);
+                }
+                Err(e) => {
+                    warn!("Identity file invalid ({}), regenerating", e);
+                    let _ = std::fs::remove_file(path);
+                }
             }
-            std::fs::write(path, data)?;
-            info!("Generated new identity: {}", &identity.public_key_hex[..16]);
-            Ok(identity)
         }
+        let identity = Self::generate();
+        let data = serde_json::to_string_pretty(&identity)?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, data)?;
+        info!("Generated new identity: {}", &identity.public_key_hex[..16]);
+        Ok(identity)
     }
 }
 
