@@ -27,7 +27,9 @@ services:
   # WebSocket relay — devices connect to ws://boot1.voryn.bitstack.website:4001/ws
   # Port 4001/tcp exposed directly (bypasses Coolify proxy)
   bootstrap:
-    image: ghcr.io/bitstack852/voryn-bootstrap:latest
+    build:
+      context: ../..
+      dockerfile: deploy/coolify/Dockerfile.bootstrap
     restart: unless-stopped
     ports:
       - "4001:4001/tcp"
