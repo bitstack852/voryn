@@ -354,7 +354,7 @@ planning completeness so architecture decisions in Tasks 6–7 don't block it la
 
 4. **Read receipts** — ✅ BOTH: `sent` (single grey tick) + `delivered` (double grey tick). No blue read ticks yet.
 
-5. **Offline contact requests** — ⏳ PENDING clarification (see note below)
+5. **Offline contact requests** — ✅ CLIENT-SIDE QUEUE: store the request on the sender's device with `sent`/`delivered` status, same as messages. Retry sending on reconnect until the relay ACKs delivery. No relay store-and-forward needed.
 
 ---
 
