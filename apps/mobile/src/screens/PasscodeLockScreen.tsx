@@ -12,6 +12,8 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as PasscodeService from '../services/PasscodeService';
 import * as VorynBridge from '../services/VorynBridge';
+import { Logo } from '../components/Logo';
+import { colors } from '../theme/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'PasscodeLock'>;
 
@@ -26,7 +28,6 @@ export const PasscodeLockScreen: React.FC = () => {
     setIsVerifying(true);
     setError(null);
 
-    // Check if we should wipe
     if (await PasscodeService.shouldWipe()) {
       await VorynBridge.deleteIdentity();
       await PasscodeService.removePasscode();
@@ -55,7 +56,8 @@ export const PasscodeLockScreen: React.FC = () => {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Voryn</Text>
+      <Logo size={64} />
+      <Text style={styles.title}>VORYN</Text>
       <Text style={styles.subtitle}>Enter passcode to unlock</Text>
 
       <TextInput
@@ -64,7 +66,7 @@ export const PasscodeLockScreen: React.FC = () => {
         onChangeText={(text) => { setPasscode(text); setError(null); }}
         onSubmitEditing={handleSubmit}
         placeholder="Passcode"
-        placeholderTextColor="#555555"
+        placeholderTextColor={colors.textMuted}
         secureTextEntry
         autoFocus
         maxLength={32}
@@ -87,16 +89,17 @@ export const PasscodeLockScreen: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0D0D0D', alignItems: 'center', justifyContent: 'center', padding: 24 },
-  title: { fontSize: 36, fontWeight: '700', color: '#FFFFFF', letterSpacing: 4 },
-  subtitle: { fontSize: 14, color: '#888888', marginTop: 8 },
+  container: { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 24 },
+  title: { fontSize: 28, fontWeight: '700', color: colors.textPrimary, letterSpacing: 6, marginTop: 16 },
+  subtitle: { fontSize: 13, color: colors.textSecondary, marginTop: 6, fontFamily: 'Menlo' },
   input: {
-    backgroundColor: '#1A1A1A', borderRadius: 8, paddingHorizontal: 20, paddingVertical: 16,
-    color: '#FFFFFF', fontSize: 24, textAlign: 'center', letterSpacing: 8, width: '100%',
-    marginTop: 40, borderWidth: 1, borderColor: '#333333',
+    backgroundColor: colors.surface, borderRadius: 8, paddingHorizontal: 20, paddingVertical: 16,
+    color: colors.textPrimary, fontSize: 24, textAlign: 'center', letterSpacing: 8, width: '100%',
+    marginTop: 40, borderWidth: 1, borderColor: colors.borderLight,
   },
-  inputError: { borderColor: '#FF3B30' },
-  errorText: { color: '#FF3B30', fontSize: 13, marginTop: 8 },
-  button: { backgroundColor: '#FFFFFF', paddingVertical: 16, paddingHorizontal: 48, borderRadius: 12, marginTop: 24, width: '100%', alignItems: 'center' },
-  buttonText: { fontSize: 16, fontWeight: '600', color: '#0D0D0D' },
+  inputError: { borderColor: colors.error },
+  errorText: { color: colors.error, fontSize: 13, marginTop: 8 },
+  button: { backgroundColor: colors.textPrimary, paddingVertical: 16, paddingHorizontal: 48, borderRadius: 12, marginTop: 24, width: '100%', alignItems: 'center' },
+  buttonText: { fontSize: 16, fontWeight: '600', color: colors.background },
 });
+
