@@ -11,19 +11,22 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
 import * as NetworkService from '../services/NetworkService';
+import { useNetwork } from '../hooks/useNetwork';
+import { Logo } from '../components/Logo';
+import { colors } from '../theme/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Contacts'>;
 
 export const ContactsScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const [contacts, setContacts] = useState<VorynBridge.Contact[]>([]);
+  const { status, peerCount } = useNetwork();
 
   const loadContacts = useCallback(async () => {
     const result = await VorynBridge.getContacts();
     setContacts(result);
   }, []);
 
-  // Connect to relay when Contacts screen loads (identity is guaranteed to exist)
   useEffect(() => {
     NetworkService.connect().catch((e) => {
       console.log('[Contacts] Relay connection failed:', e);
@@ -36,11 +39,26 @@ export const ContactsScreen: React.FC = () => {
     }, [loadContacts]),
   );
 
+  const statusDotColor =
+    status === 'connected' ? colors.success :
+    status === 'connecting' ? colors.warning :
+    colors.textMuted;
+
+  const statusLabel =
+    status === 'connected' ? `${peerCount} peer${peerCount !== 1 ? 's' : ''}` :
+    status === 'connecting' ? 'Connecting...' :
+    'Offline';
+
   return (
     <View style={styles.container}>
+      <View style={styles.networkBar}>
+        <View style={[styles.statusDot, { backgroundColor: statusDotColor }]} />
+        <Text style={styles.statusText}>{statusLabel}</Text>
+      </View>
+
       {contacts.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyIcon}>🔐</Text>
+          <Logo size={64} />
           <Text style={styles.emptyTitle}>No Contacts Yet</Text>
           <Text style={styles.emptySubtitle}>
             Share your public key with someone to get started
@@ -58,6 +76,13 @@ export const ContactsScreen: React.FC = () => {
             onPress={() => navigation.navigate('ScanQR')}
           >
             <Text style={styles.secondaryButtonText}>Scan QR / Add Contact</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.tertiaryButton}
+            onPress={() => navigation.navigate('Settings')}
+          >
+            <Text style={styles.tertiaryButtonText}>Settings</Text>
           </TouchableOpacity>
         </View>
       ) : (
@@ -121,27 +146,30 @@ export const ContactsScreen: React.FC = () => {
           </View>
         </>
       )}
-
-      {contacts.length === 0 && (
-        <TouchableOpacity
-          style={styles.settingsLink}
-          onPress={() => navigation.navigate('Settings')}
-        >
-          <Text style={styles.settingsLinkText}>Settings</Text>
-        </TouchableOpacity>
-      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0D0D0D' },
+  container: { flex: 1, backgroundColor: colors.background },
+
+  networkBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  statusDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
+  statusText: { fontSize: 11, color: colors.textMuted, fontFamily: 'Menlo' },
+
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  emptyIcon: { fontSize: 48, marginBottom: 16 },
-  emptyTitle: { fontSize: 22, fontWeight: '600', color: '#FFFFFF' },
-  emptySubtitle: { fontSize: 14, color: '#888888', marginTop: 8, textAlign: 'center' },
+  emptyTitle: { fontSize: 22, fontWeight: '600', color: colors.textPrimary, marginTop: 20 },
+  emptySubtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 8, textAlign: 'center' },
+
   primaryButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: colors.textPrimary,
     paddingVertical: 14,
     paddingHorizontal: 40,
     borderRadius: 12,
@@ -149,7 +177,7 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
   },
-  primaryButtonText: { fontSize: 16, fontWeight: '600', color: '#0D0D0D' },
+  primaryButtonText: { fontSize: 16, fontWeight: '600', color: colors.background },
   secondaryButton: {
     backgroundColor: 'transparent',
     paddingVertical: 14,
@@ -159,39 +187,41 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: colors.surfaceLight,
   },
-  secondaryButtonText: { fontSize: 16, fontWeight: '600', color: '#888888' },
+  secondaryButtonText: { fontSize: 16, fontWeight: '600', color: colors.textSecondary },
+  tertiaryButton: { marginTop: 20, padding: 8 },
+  tertiaryButtonText: { fontSize: 13, color: colors.textMuted },
+
   contactRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 14,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A1A1A',
+    borderBottomColor: colors.border,
   },
   avatar: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: '#1A3A5C',
+    backgroundColor: colors.accentDark,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
   },
-  avatarText: { fontSize: 18, fontWeight: '600', color: '#FFFFFF' },
+  avatarText: { fontSize: 18, fontWeight: '600', color: colors.textPrimary },
   contactInfo: { flex: 1 },
-  contactName: { fontSize: 16, fontWeight: '500', color: '#FFFFFF' },
-  contactKey: { fontSize: 11, color: '#555555', fontFamily: 'monospace', marginTop: 2 },
-  verifiedBadge: { fontSize: 16, color: '#34C759' },
+  contactName: { fontSize: 16, fontWeight: '500', color: colors.textPrimary },
+  contactKey: { fontSize: 11, color: colors.textMuted, fontFamily: 'Menlo', marginTop: 2 },
+  verifiedBadge: { fontSize: 16, color: colors.success },
+
   bottomBar: {
     flexDirection: 'row',
     borderTopWidth: 1,
-    borderTopColor: '#1A1A1A',
+    borderTopColor: colors.border,
     paddingBottom: 34,
   },
   bottomButton: { flex: 1, paddingVertical: 14, alignItems: 'center' },
-  bottomButtonText: { fontSize: 13, color: '#888888' },
-  settingsLink: { padding: 16, alignItems: 'center' },
-  settingsLinkText: { fontSize: 14, color: '#555555' },
+  bottomButtonText: { fontSize: 13, color: colors.textSecondary },
 });
