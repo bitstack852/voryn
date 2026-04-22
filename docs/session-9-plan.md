@@ -344,24 +344,17 @@ planning completeness so architecture decisions in Tasks 6–7 don't block it la
 
 ---
 
-## Open Questions Needing Sign-Off Before Coding
+## Decisions (Signed Off)
 
-1. **Existing message history** — wipe plaintext messages on this install, or keep them?
-   - Recommendation: wipe (test devices, clean encrypted baseline)
+1. **Existing message history** — ✅ WIPE on this session's install (clean encrypted baseline)
 
-2. **Denied contact requests** — permanently blocked or just dismissed?
-   - Recommendation: dismissed (no block feature yet)
+2. **Denied contact requests** — ✅ DISMISSED only (no permanent block; they can request again)
 
-3. **Group encryption** — per-member DH or shared group key?
-   - Recommendation: shared group key using existing Rust infrastructure
+3. **Group encryption** — ✅ SHARED GROUP KEY using existing Rust Shamir/group-key infrastructure
 
-4. **Read receipts** — implement blue ticks (read) or just grey double-tick (delivered)?
-   - Recommendation: delivered only for now, read receipts in a later session
+4. **Read receipts** — ✅ BOTH: `sent` (single grey tick) + `delivered` (double grey tick). No blue read ticks yet.
 
-5. **Offline contact requests** — if Bob is offline when Alice sends a request, does the relay hold it?
-   - The relay currently does NOT store-and-forward. Bob must be online.
-   - Recommendation: note this limitation in UI ("Request will be delivered when recipient is online")
-   - Store-and-forward on relay is a separate infrastructure task
+5. **Offline contact requests** — ⏳ PENDING clarification (see note below)
 
 ---
 
