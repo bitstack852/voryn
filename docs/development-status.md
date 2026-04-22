@@ -1,6 +1,6 @@
 # Development Status
 
-Last updated: 2026-04-18 (end of session 7)
+Last updated: 2026-04-22 (end of session 8)
 
 ## Project Overview
 
@@ -18,18 +18,19 @@ No central servers. No metadata exposure. No compromises.
 | Component | Status | URL/Address |
 |-----------|--------|-------------|
 | Update Server | **LIVE** | `https://updates.voryn.bitstack.website` |
-| Bootstrap Node | **LIVE** | `boot1.voryn.bitstack.website:4001` |
+| Relay Node | **LIVE** | `ws://boot1.voryn.bitstack.website:4001/ws` |
 | CI/CD Pipeline | **Working** | GitHub Actions (tag-triggered releases) |
 | Android Keystore | **Configured** | Stored in GitHub Secrets |
 | DNS (Cloudflare) | **Configured** | `updates.voryn` + `boot1.voryn` on `bitstack.website` |
-| Coolify | **Running** | 2 services: nginx update server + Rust bootstrap node |
+| Coolify | **Running** | 2 services: nginx update server + WebSocket relay node |
 
-### Bootstrap Node Identity
-- **PeerId:** `12D3KooWMnagsbtuh6ytx5VWUPDhq9BePidVwmpEU7GG9ZHTnv3X`
-- **Multiaddr:** `/dns4/boot1.voryn.bitstack.website/tcp/4001/p2p/12D3KooWMnagsbtuh6ytx5VWUPDhq9BePidVwmpEU7GG9ZHTnv3X`
-- **Binary:** Cross-compiled from macOS → Linux (x86_64-unknown-linux-musl), 2MB static
-- **Persistent:** Identity key stored in Docker volume at `/data/node-identity.key`
-- **Verified (Session 5):** App connects and shows "Network status: connected, peers: 1"
+### Relay Node (Session 8 — replaced libp2p)
+- **Protocol:** WebSocket JSON relay — devices register by pubkey, relay routes encrypted payloads
+- **Endpoints:** `/ws` (WebSocket), `/health` (HTTP), `/status` (HTTP peer count)
+- **Identity:** Generated on first start, persisted at `/data/node-identity.key` in container
+- **Deployment:** Coolify builds from `deploy/coolify/Dockerfile.bootstrap` (no pre-built image)
+- **Verified:** `curl http://boot1.voryn.bitstack.website:4001/health` → `{"status":"ok","version":"0.2.0"}`
+- **No volume mount** — old identity file from libp2p era was causing crashes; removed volume so identity regenerates fresh each deploy
 
 ---
 
@@ -37,9 +38,9 @@ No central servers. No metadata exposure. No compromises.
 
 ### Platforms
 
-| Platform | Build Status | Tested on Device | Rust Bridge |
-|----------|-------------|-----------------|-------------|
-| iOS | **Builds & runs** | **Tested on iPhone (NST)** | **Fully connected — real Rust, real P2P** |
+| Platform | Build Status | Tested on Device | Transport |
+|----------|-------------|-----------------|-----------|
+| iOS | **Builds & runs** | **Both iPhone-NST + Acumen-XR** | **WebSocket relay — working** |
 | Android | **APK builds** (84MB) | Not tested (no Android phone) | Not yet connected |
 
 ### Screens Implemented (10 total)
@@ -69,12 +70,14 @@ Passcode Lock → Numeric keypad only
              → 10 failed attempts → full data wipe
              → Requires passcode to remove
 
-Bootstrap → Connects to boot1.voryn.bitstack.website:4001
-          → Verified: "Network status: connected, peers: 2"
+Relay → WebSocket to ws://boot1.voryn.bitstack.website:4001/ws
+      → Registers pubkey on connect, auto-reconnects every 5s
+      → Ping/pong keepalive every 30s
+      → Verified: health endpoint returns ok, both devices connected
 
 Messages → Stored locally in AsyncStorage
-         → Pending → Sent status transition
-         → Ready for P2P delivery when libp2p is connected
+         → Pending → Sent → Delivered status transitions
+         → Encrypted payloads relayed between devices
 ```
 
 ---
@@ -88,23 +91,23 @@ Messages → Stored locally in AsyncStorage
 | `voryn_hello()` | Bridge test | **Working on iPhone** |
 | `voryn_generate_identity()` | Real Ed25519 keypair | **Working on iPhone** |
 | `voryn_compute_safety_number()` | Deterministic safety number | **Compiled** |
-| `voryn_start_node(config_json)` | Start libp2p node | **Working on device** |
-| `voryn_stop_node()` | Stop libp2p node | **Working on device** |
-| `voryn_send_message(peer_id, data, len)` | Send raw bytes to peer | **Working on device** |
-| `voryn_poll_event()` | Poll event queue | **Working on device** |
-| `voryn_node_status()` | Node running status | **Working on device** |
+| `voryn_encrypt_message()` | DH + XSalsa20-Poly1305 encrypt | **Working on device** |
+| `voryn_decrypt_message()` | Decrypt + verify sender sig | **Working on device** |
+| `voryn_peer_id_from_public_key()` | Derive peer ID from pubkey | **Working on device** |
 | `voryn_free_string()` | Memory cleanup | **Compiled** |
+
+**Note (Session 8):** libp2p FFI functions (`voryn_start_node`, `voryn_stop_node`, `voryn_send_message`, `voryn_poll_event`, `voryn_node_status`) are no longer used. Network transport is now pure JS WebSocket via `NetworkService.ts`. The Rust bridge is only used for crypto operations.
 
 ### Bridge Architecture
 
 ```
 React Native (TypeScript)
-  → TurboModuleRegistry.get('VorynCore')  ← WORKING as of session 5
+  → NetworkService.ts (WebSocket relay — pure JS, no Rust needed for transport)
+  → TurboModuleRegistry.get('VorynCore')  ← WORKING — used for crypto only
     → VorynCoreModule.mm (ObjC++ TurboModule)
       → voryn_core.h (C FFI, extern "C" wrapped)
         → libvoryn_core.a (static Rust library, gitignored — build locally)
-          → sodiumoxide (libsodium) Ed25519
-          → libp2p (Kademlia DHT + mDNS + TCP/Noise/Yamux)
+          → sodiumoxide (libsodium) Ed25519 + XSalsa20-Poly1305
 ```
 
 ### Bridge Layer (`crates/voryn-core/src/bridge.rs`)
@@ -136,10 +139,10 @@ All Rust code compiles clean on macOS (`cargo check --workspace` — 0 errors).
 |-------|---------|--------|
 | `voryn-core` | FFI bridge, orchestration, auth, wipe | **Compiled + bridged to iOS** |
 | `voryn-crypto` | Ed25519, X25519, XSalsa20-Poly1305, Argon2id | **Compiled, all tests pass** |
-| `voryn-network` | libp2p DHT node, transport, discovery | **Running on device, connected to bootstrap** |
+| `voryn-network` | libp2p DHT node (UNUSED — replaced by WebSocket relay in Session 8) | **Compiles, not used in app** |
 | `voryn-storage` | SQLCipher database, migrations, CRUD | **Compiled, all tests pass** |
 | `voryn-protocol` | Double Ratchet, Shamir, group ledger, invites | **Compiled, all tests pass** |
-| `voryn-bootstrap` | Standalone DHT bootstrap server | **Rewritten with real libp2p — needs redeploy** |
+| `voryn-bootstrap` | WebSocket relay server (replaced libp2p DHT in Session 8) | **Live on boot1.voryn.bitstack.website:4001** |
 
 ---
 
@@ -172,6 +175,57 @@ All Rust code compiles clean on macOS (`cargo check --workspace` — 0 errors).
 Root cause found and fixed: `RCTModuleProviders.mm` codegen generates an empty `moduleMapping` dictionary for app-level modules. The module was compiled but never registered with the bridgeless runtime.
 
 Fix: Podfile `post_install` hook patches `RCTModuleProviders.mm` after codegen to inject `@"VorynCore": @"VorynCoreModule"`.
+
+### Session 8: WebSocket Relay — Both Devices Messaging
+
+**Goal:** Replace libp2p with a simple WebSocket relay and get real device-to-device messaging working.
+
+**Why:** libp2p circuit relay was unreliable behind iOS NAT. WebSocket is natively supported in React Native JS — no Rust bridge needed for transport. Simpler, auditable, and it works.
+
+**What was done:**
+
+1. **Rewrote `voryn-bootstrap`** — from libp2p DHT to a WebSocket JSON relay server using `warp`. Protocol: devices register by hex pubkey, relay routes encrypted payloads between them. HTTP `/health` and `/status` endpoints added.
+
+2. **Rewrote `NetworkService.ts`** — from libp2p polling to WebSocket relay client. Connects to `ws://boot1.voryn.bitstack.website:4001/ws`, registers identity on connect, auto-reconnects every 5s, ping/pong keepalive every 30s. Backward-compatible API maintained.
+
+3. **Wired `ChatScreen.tsx`** — `handleSend` now stores via `VorynBridge.sendMessage` then calls `NetworkService.sendToPeer` if connected. Incoming messages trigger reload via `NetworkService.onMessage` listener.
+
+4. **Updated `App.tsx`** — single `NetworkService.connect()` call on mount with cleanup on unmount.
+
+5. **Updated `deploy/coolify/docker-compose.yml`** — changed `image: ghcr.io/...` to `build: context:` so Coolify builds from Dockerfile instead of pulling a stale pre-built image. Removed `bootstrap-data` volume (was persisting old libp2p identity file that crashed new binary).
+
+6. **Dead code removed:** `PasscodeEntryScreen.tsx`, `PasscodeSetupScreen.tsx`, `useAuth.ts`, `useMessages.ts`, `MessageStatus.tsx` — all orphaned, never referenced.
+
+7. **Theme color fixes** — `ScanQRScreen.tsx`, `ContactDetailScreen.tsx`, `ShareKeyScreen.tsx` all updated to use `colors.*` constants instead of hardcoded hex values.
+
+**Verified:**
+- `curl http://boot1.voryn.bitstack.website:4001/health` → `{"status":"ok","version":"0.2.0"}`
+- App built and installed on both iPhone-NST and Acumen-XR
+- Both devices connect to relay
+
+**Build commands (Session 8 — updated):**
+```bash
+# From repo root on Mac
+git pull
+
+# Build Rust static lib for iOS
+cargo build --release --target aarch64-apple-ios -p voryn-core
+cp target/aarch64-apple-ios/release/libvoryn_core.a apps/mobile/ios/VorynRust/libvoryn_core.a
+
+# CocoaPods
+cd apps/mobile/ios && pod install && cd ../../..
+
+# Install to device (use --device with display name, NOT --udid)
+cd apps/mobile
+npx react-native run-ios --device "iPhone - NST"
+npx react-native run-ios --device "Acumen-XR"
+```
+
+**Devices:**
+- iPhone-NST: CoreDevice ID `307AE499-AE17-4FBF-8CBF-0AA226467217`
+- Acumen-XR: CoreDevice ID `9D82AFFE-7F98-4E32-BD8C-F1C096E09636`
+
+---
 
 ### Session 7: Two-Device Messaging — NAT Traversal + Relay
 
@@ -296,15 +350,14 @@ xcrun devicectl device install app \
 | Task | Effort | Status |
 |------|--------|--------|
 | Resolve libp2p yanked dependency | 1 hour | ✅ Done (Session 3) |
-| Implement full libp2p swarm (Kademlia DHT + mDNS + TCP/Noise) | 1-2 days | ✅ Done (Session 3) |
-| Wire libp2p node as background thread via FFI | 1 day | ✅ Done (Session 3) |
-| Implement `/voryn/message/1.0.0` custom protocol | 1 day | ✅ Done (Session 3) |
+| Implement full libp2p swarm (Kademlia DHT + mDNS + TCP/Noise) | 1-2 days | ✅ Done (Session 3) — superseded |
+| Wire libp2p node as background thread via FFI | 1 day | ✅ Done (Session 3) — superseded |
 | Fix TurboModule registration so Rust bridge loads | 1 day | ✅ Done (Session 5) |
 | Fix DNS resolver for iOS (no `/etc/resolv.conf`) | 1 hour | ✅ Done (Session 5) |
-| Verify bootstrap connection on device | 30 min | ✅ Done (Session 5) — peers: 1 |
-| Test mDNS discovery (two phones on same WiFi) | 1 hour | ✅ Fixed — peers now dialed on mDNS Discovered |
-| Test DHT discovery (two phones on different networks via bootstrap) | 2 hours | **In progress — relay implemented, testing** |
-| End-to-end message delivery (Phone A → Phone B via P2P) | 2 hours | **In progress — relay path exists, verifying delivery** |
+| **Replace libp2p with WebSocket relay** | 1 day | ✅ Done (Session 8) — works reliably |
+| Deploy relay server | 1 hour | ✅ Done (Session 8) — live at boot1.voryn.bitstack.website:4001 |
+| Install on both devices and verify relay connection | 1 hour | ✅ Done (Session 8) — iPhone-NST + Acumen-XR |
+| End-to-end message delivery (Phone A → Phone B via relay) | 2 hours | **Next — relay connected, needs two-device message test** |
 
 ### Phase B: Real Encrypted Messaging
 
@@ -397,21 +450,27 @@ cargo check --workspace              # Verify all crates compile
 cargo test --workspace               # Run all tests
 cargo test -p voryn-core -- bridge   # Run bridge tests only
 
-# Build iOS static library (22MB)
+# Build iOS static library for Rust crypto bridge
 cargo build --release --target aarch64-apple-ios -p voryn-core
+cp target/aarch64-apple-ios/release/libvoryn_core.a apps/mobile/ios/VorynRust/libvoryn_core.a
 
-# Build Linux bootstrap binary (2MB)
-CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=x86_64-linux-musl-gcc \
-  cargo build --release --target x86_64-unknown-linux-musl -p voryn-bootstrap
+# ── iOS — Install to physical device (Session 8 method) ─────
+cd /Users/nstorres/Documents/GitHub/voryn
+git pull   # ALWAYS pull first
 
-# ── iOS ───────────────────────────────────────────────
+cargo build --release --target aarch64-apple-ios -p voryn-core
+cp target/aarch64-apple-ios/release/libvoryn_core.a apps/mobile/ios/VorynRust/libvoryn_core.a
+
 cd apps/mobile/ios
-/opt/homebrew/lib/ruby/gems/4.0.0/bin/pod install
-# Build from terminal:
-xcodebuild -workspace Voryn.xcworkspace -scheme Voryn -sdk iphoneos \
-  -configuration Debug -destination 'id=00008101-001C4D8C2251001E' 2>&1 | tail -5
-# Or open Xcode and Cmd+R:
-open Voryn.xcworkspace
+pod install
+cd ..
+
+# Build and install — use --device with display name (NOT --udid)
+npx react-native run-ios --device "iPhone - NST"
+npx react-native run-ios --device "Acumen-XR"
+
+# ── iOS — Metro bundler (if needed separately) ────────
+cd apps/mobile && npx react-native start
 
 # ── Android APK ──────────────────────────────────────
 cd apps/mobile
@@ -423,12 +482,26 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@17
 export ANDROID_HOME=/opt/homebrew/share/android-commandlinetools
 cd android && ./gradlew assembleRelease
 
-# ── Bootstrap binary upload to Coolify ────────────────
-# 1. Make repo public temporarily
-# 2. In Coolify terminal: wget -O /data/voryn-bootstrap <raw github url>
-# 3. chmod +x /data/voryn-bootstrap
-# 4. Make repo private again
+# ── Coolify relay redeploy ────────────────────────────
+# Coolify builds from Dockerfile on each deploy trigger.
+# After pushing code to main: Coolify → bootstrap service → Redeploy
+# DO NOT just "Restart" — that reuses the existing container without rebuilding.
+# "Redeploy" = rebuild from Dockerfile + start fresh container.
 ```
+
+### Known Gotchas (Session 8 — lessons learned)
+
+| Gotcha | Detail |
+|--------|--------|
+| Coolify Restart ≠ Redeploy | "Restart" reuses the running container. "Redeploy" rebuilds from Dockerfile. Always use Redeploy after pushing code changes. |
+| `image:` vs `build:` in docker-compose | If compose has `image: ghcr.io/...`, Coolify pulls the old image on redeploy. Change to `build: context:` so it builds from the Dockerfile in the repo. |
+| Old identity file in Docker volume | `voryn-bootstrap` had a volume at `/data`. Old libp2p identity file had wrong JSON schema, crashing the new WebSocket binary on startup. Fix: removed volume entirely from compose. |
+| Can't SSH into crash-looping container | Container exits before you can exec into it. Fix the code, redeploy, or add graceful error handling (regenerate instead of crash) in the binary itself. |
+| `--udid` flag is for simulators | `npx react-native run-ios --udid` does not work for physical devices. Use `--device "Display Name"` instead. |
+| `git pull` before building | If `cargo build` says "Finished in 0.4s", it used the cache. Always pull latest first or the device gets stale Rust code. |
+| macOS BSD `sed` can't insert real newlines | `sed 's/foo/bar\n/g'` on macOS inserts literal `\n`, not a newline. Use Python or write the file directly instead. |
+| Never `--ff-only` on diverged branches | If server's `origin/main` is stale vs GitHub's main, `--ff-only` fails. Use `git merge --no-ff` or rebase. |
+| Git remote proxy vs GitHub | The server's git remote proxies GitHub. It can lag behind. Always `git fetch origin` and check before assuming branch state. |
 
 ### Known Build Issues
 
