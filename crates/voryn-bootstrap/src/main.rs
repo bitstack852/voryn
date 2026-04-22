@@ -1,35 +1,36 @@
-//! Voryn Bootstrap Node — DHT peer discovery server.
+//! Voryn Relay Node — WebSocket-based message relay
 //!
-//! Runs a full libp2p node in server mode. New Voryn devices dial this node
-//! to join the Kademlia DHT. It does NOT store messages or relay traffic.
+//! Devices connect via WebSocket, register their public key, and exchange
+//! encrypted messages through the relay. The relay never sees plaintext —
+//! it only routes opaque encrypted payloads between peers.
 //!
-//! Usage:
-//!   voryn-bootstrap --listen /ip4/0.0.0.0/tcp/4001
-//!   voryn-bootstrap --listen /ip4/0.0.0.0/tcp/4001 --identity-file /opt/voryn/data/node.key
-
-use std::path::PathBuf;
-use std::time::Duration;
+//! Protocol (JSON over WebSocket):
+//!   Client → Server: { "type": "register", "peer_id": "<hex pubkey>" }
+//!   Client → Server: { "type": "send", "to": "<hex pubkey>", "payload": "...", "message_id": "..." }
+//!   Server → Client: { "type": "message", "from": "<hex pubkey>", "payload": "...", "message_id": "..." }
+//!   Server → Client: { "type": "ack", "message_id": "...", "status": "delivered|offline" }
+//!   Server → Client: { "type": "peer_online", "peer_id": "<hex pubkey>" }
+//!   Server → Client: { "type": "peer_offline", "peer_id": "<hex pubkey>" }
+//!   Client → Server: { "type": "ping" }
+//!   Server → Client: { "type": "pong" }
 
 use clap::Parser;
-use futures::StreamExt;
-use libp2p::{
-    identify, kad, relay,
-    multiaddr::Protocol,
-    noise,
-    swarm::{NetworkBehaviour, SwarmEvent},
-    tcp, yamux, Multiaddr,
-};
-use tracing::{debug, info, warn};
+use futures_util::{SinkExt, StreamExt};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
+use tracing::{info, warn, error};
+use warp::Filter;
+use warp::ws::{Message, WebSocket};
 
 #[derive(Parser, Debug)]
 #[command(name = "voryn-bootstrap")]
-#[command(about = "Voryn DHT Bootstrap Node — peer discovery server")]
+#[command(about = "Voryn Relay Node — WebSocket message relay")]
 struct Args {
-    /// Listen address (multiaddr or host:port)
-    #[arg(short, long, default_value = "/ip4/0.0.0.0/tcp/4001")]
+    #[arg(short, long, default_value = "0.0.0.0:4001")]
     listen: String,
 
-    /// Path to store the node identity key (Ed25519 seed, hex-encoded JSON)
     #[arg(short, long, default_value = "node-identity.key")]
     identity_file: PathBuf,
 
@@ -37,196 +38,274 @@ struct Args {
     log_level: String,
 }
 
-// ── Swarm behaviour ───────────────────────────────────────────────
-
-#[derive(NetworkBehaviour)]
-struct BootstrapBehaviour {
-    kademlia: kad::Behaviour<kad::store::MemoryStore>,
-    identify: identify::Behaviour,
-    relay: relay::Behaviour,
-}
-
-// ── Identity persistence ──────────────────────────────────────────
-
 #[derive(serde::Serialize, serde::Deserialize)]
-struct PersistedKey {
-    seed_hex: String,
+struct NodeIdentity {
+    secret_seed_hex: String,
+    public_key_hex: String,
 }
 
-fn load_or_create_keypair(path: &PathBuf) -> anyhow::Result<libp2p::identity::Keypair> {
-    if path.exists() {
-        let json = std::fs::read_to_string(path)?;
-        match serde_json::from_str::<PersistedKey>(&json)
-            .ok()
-            .and_then(|pk| hex_decode(&pk.seed_hex).ok())
-            .filter(|b| b.len() >= 32)
-            .and_then(|b| {
-                let mut seed = [0u8; 32];
-                seed.copy_from_slice(&b[..32]);
-                libp2p::identity::ed25519::SecretKey::try_from_bytes(&mut seed).ok()
-            }) {
-            Some(secret) => {
-                let keypair = libp2p::identity::Keypair::from(
-                    libp2p::identity::ed25519::Keypair::from(secret),
-                );
-                info!("Loaded identity: {}", keypair.public().to_peer_id());
-                return Ok(keypair);
-            }
-            None => {
-                warn!("Identity file unreadable or wrong format — generating new identity");
-                std::fs::remove_file(path)?;
-            }
+impl NodeIdentity {
+    fn generate() -> Self {
+        let mut seed = [0u8; 32];
+        for byte in seed.iter_mut() {
+            *byte = rand::random();
         }
-    }
-    {
-        let keypair = libp2p::identity::Keypair::generate_ed25519();
-        let ed25519_kp = keypair
-            .clone()
-            .try_into_ed25519()
-            .expect("just generated ed25519");
-        let seed_hex = hex_encode(ed25519_kp.secret().as_ref());
-        let persisted = PersistedKey { seed_hex };
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+        let mut pk = [0u8; 32];
+        for (i, byte) in seed.iter().enumerate() {
+            pk[i] = byte.wrapping_mul(37).wrapping_add(i as u8);
         }
-        std::fs::write(path, serde_json::to_string_pretty(&persisted)?)?;
-        info!("Generated new identity: {}", keypair.public().to_peer_id());
-        Ok(keypair)
-    }
-}
-
-// ── Main ──────────────────────────────────────────────────────────
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
-
-    let filter = args
-        .log_level
-        .parse::<tracing_subscriber::filter::LevelFilter>()
-        .unwrap_or(tracing_subscriber::filter::LevelFilter::INFO);
-    tracing_subscriber::fmt().with_max_level(filter).init();
-
-    info!("=== Voryn Bootstrap Node v{} ===", env!("CARGO_PKG_VERSION"));
-
-    let keypair = load_or_create_keypair(&args.identity_file)?;
-    let local_peer_id = keypair.public().to_peer_id();
-    info!("PeerId: {}", local_peer_id);
-
-    let mut swarm = libp2p::SwarmBuilder::with_existing_identity(keypair.clone())
-        .with_tokio()
-        .with_tcp(tcp::Config::default(), noise::Config::new, yamux::Config::default)?
-        .with_behaviour(|key| {
-            let peer_id = key.public().to_peer_id();
-
-            let mut kademlia = kad::Behaviour::new(
-                peer_id,
-                kad::store::MemoryStore::new(peer_id),
-            );
-            // Bootstrap nodes run in Server mode — they answer queries.
-            kademlia.set_mode(Some(kad::Mode::Server));
-
-            let identify = identify::Behaviour::new(identify::Config::new(
-                "/voryn/1.0.0".to_string(),
-                key.public(),
-            ));
-
-            let relay = relay::Behaviour::new(peer_id, relay::Config::default());
-
-            Ok(BootstrapBehaviour { kademlia, identify, relay })
-        })?
-        .with_swarm_config(|cfg| cfg.with_idle_connection_timeout(Duration::from_secs(300)))
-        .build();
-
-    let listen_addr: Multiaddr = parse_listen_addr(&args.listen);
-    swarm.listen_on(listen_addr)?;
-
-    info!("Bootstrap node running. Ctrl+C to stop.");
-
-    let mut peer_count: u64 = 0;
-
-    loop {
-        tokio::select! {
-            event = swarm.select_next_some() => match event {
-                SwarmEvent::NewListenAddr { address, .. } => {
-                    info!("Listening on {}/p2p/{}", address, local_peer_id);
-                    info!("Bootstrap multiaddr: {}/p2p/{}", address, local_peer_id);
-                }
-                SwarmEvent::ConnectionEstablished { peer_id, endpoint, .. } => {
-                    peer_count += 1;
-                    let addr = match &endpoint {
-                        libp2p::core::ConnectedPoint::Dialer { address, .. } => address.to_string(),
-                        libp2p::core::ConnectedPoint::Listener { send_back_addr, .. } => send_back_addr.to_string(),
-                    };
-                    info!("Peer connected: {} from {} (total: {})", peer_id, addr, peer_count);
-                }
-                SwarmEvent::ConnectionClosed { peer_id, .. } => {
-                    debug!("Peer disconnected: {}", peer_id);
-                }
-                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Identify(
-                    identify::Event::Received { peer_id, info, .. },
-                )) => {
-                    for addr in &info.listen_addrs {
-                        swarm.behaviour_mut().kademlia.add_address(&peer_id, addr.clone());
-                    }
-                    debug!("Identified peer {}: protocols={:?}", peer_id, info.protocols);
-                }
-                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Kademlia(
-                    kad::Event::RoutingUpdated { peer, is_new_peer: true, .. },
-                )) => {
-                    info!("New DHT peer: {}", peer);
-                }
-                SwarmEvent::Behaviour(BootstrapBehaviourEvent::Kademlia(
-                    kad::Event::InboundRequest { request },
-                )) => {
-                    debug!("DHT inbound: {:?}", request);
-                }
-                SwarmEvent::OutgoingConnectionError { peer_id, error, .. } => {
-                    warn!("Outgoing connection error {:?}: {}", peer_id, error);
-                }
-                _ => {}
-            },
-            _ = tokio::signal::ctrl_c() => {
-                info!("Shutting down bootstrap node...");
-                break;
-            }
+        Self {
+            secret_seed_hex: hex_encode(&seed),
+            public_key_hex: hex_encode(&pk),
         }
     }
 
-    info!("Bootstrap node stopped. Total peers served: {}", peer_count);
-    Ok(())
-}
-
-// ── Helpers ───────────────────────────────────────────────────────
-
-fn parse_listen_addr(addr: &str) -> Multiaddr {
-    if let Ok(ma) = addr.parse::<Multiaddr>() {
-        return ma;
+    fn load_or_create(path: &PathBuf) -> anyhow::Result<Self> {
+        if path.exists() {
+            let data = std::fs::read_to_string(path)?;
+            let identity: NodeIdentity = serde_json::from_str(&data)?;
+            info!("Loaded identity: {}", &identity.public_key_hex[..16]);
+            Ok(identity)
+        } else {
+            let identity = Self::generate();
+            let data = serde_json::to_string_pretty(&identity)?;
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(path, data)?;
+            info!("Generated new identity: {}", &identity.public_key_hex[..16]);
+            Ok(identity)
+        }
     }
-    // Try host:port fallback
-    if let Ok(sa) = addr.parse::<std::net::SocketAddr>() {
-        let ip = sa.ip();
-        let port = sa.port();
-        let proto = match ip {
-            std::net::IpAddr::V4(v4) => Protocol::Ip4(v4),
-            std::net::IpAddr::V6(v6) => Protocol::Ip6(v6),
-        };
-        let mut ma = Multiaddr::empty();
-        ma.push(proto);
-        ma.push(Protocol::Tcp(port));
-        return ma;
-    }
-    warn!("Could not parse listen addr '{}', falling back to 0.0.0.0:4001", addr);
-    "/ip4/0.0.0.0/tcp/4001".parse().unwrap()
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-fn hex_decode(s: &str) -> anyhow::Result<Vec<u8>> {
-    (0..s.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|e| anyhow::anyhow!(e)))
-        .collect()
+/// A connected peer with a channel to send messages to them.
+struct ConnectedPeer {
+    tx: mpsc::UnboundedSender<String>,
+}
+
+type PeerMap = Arc<RwLock<HashMap<String, ConnectedPeer>>>;
+
+/// Handle a single WebSocket connection.
+async fn handle_ws(ws: WebSocket, peers: PeerMap, node_pk: String) {
+    let (mut ws_tx, mut ws_rx) = ws.split();
+    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    let mut peer_id: Option<String> = None;
+
+    // Send server hello
+    let hello = serde_json::json!({
+        "type": "server_hello",
+        "version": "0.2.0",
+        "server_id": node_pk,
+    });
+    let _ = ws_tx.send(Message::text(hello.to_string())).await;
+
+    // Spawn task to forward channel messages to WebSocket
+    let forward_task = tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            if ws_tx.send(Message::text(msg)).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    // Read messages from WebSocket
+    while let Some(result) = ws_rx.next().await {
+        let msg = match result {
+            Ok(m) => m,
+            Err(_) => break,
+        };
+
+        if msg.is_close() {
+            break;
+        }
+
+        let text = match msg.to_str() {
+            Ok(t) => t.to_string(),
+            Err(_) => continue,
+        };
+
+        let json: serde_json::Value = match serde_json::from_str(&text) {
+            Ok(j) => j,
+            Err(_) => continue,
+        };
+
+        let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+        match msg_type {
+            "register" => {
+                let id = json.get("peer_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                if id.is_empty() {
+                    continue;
+                }
+
+                info!("Peer registered: {}...", &id[..16.min(id.len())]);
+                peer_id = Some(id.clone());
+
+                // Notify existing peers about new peer
+                {
+                    let map = peers.read().await;
+                    let online_msg = serde_json::json!({
+                        "type": "peer_online",
+                        "peer_id": &id,
+                    }).to_string();
+
+                    for (_, p) in map.iter() {
+                        let _ = p.tx.send(online_msg.clone());
+                    }
+
+                    // Send list of online peers to new peer
+                    for existing_id in map.keys() {
+                        let msg = serde_json::json!({
+                            "type": "peer_online",
+                            "peer_id": existing_id,
+                        }).to_string();
+                        let _ = tx.send(msg);
+                    }
+                }
+
+                // Register
+                peers.write().await.insert(id, ConnectedPeer { tx: tx.clone() });
+            }
+
+            "send" => {
+                let to = json.get("to").and_then(|v| v.as_str()).unwrap_or("");
+                let payload = json.get("payload").and_then(|v| v.as_str()).unwrap_or("");
+                let message_id = json.get("message_id").and_then(|v| v.as_str()).unwrap_or("");
+                let from = peer_id.as_deref().unwrap_or("unknown");
+
+                if to.is_empty() || payload.is_empty() {
+                    continue;
+                }
+
+                info!("Relay: {}... → {}... ({} bytes)",
+                    &from[..16.min(from.len())],
+                    &to[..16.min(to.len())],
+                    payload.len()
+                );
+
+                let forward = serde_json::json!({
+                    "type": "message",
+                    "from": from,
+                    "payload": payload,
+                    "message_id": message_id,
+                }).to_string();
+
+                let map = peers.read().await;
+                if let Some(recipient) = map.get(to) {
+                    if recipient.tx.send(forward).is_ok() {
+                        // ACK delivered
+                        let ack = serde_json::json!({
+                            "type": "ack",
+                            "message_id": message_id,
+                            "status": "delivered",
+                        }).to_string();
+                        let _ = tx.send(ack);
+                    }
+                } else {
+                    // Recipient offline
+                    let ack = serde_json::json!({
+                        "type": "ack",
+                        "message_id": message_id,
+                        "status": "offline",
+                    }).to_string();
+                    let _ = tx.send(ack);
+                }
+            }
+
+            "ping" => {
+                let _ = tx.send(serde_json::json!({"type": "pong"}).to_string());
+            }
+
+            _ => {
+                warn!("Unknown message type: {}", msg_type);
+            }
+        }
+    }
+
+    // Cleanup: remove peer and notify others
+    if let Some(id) = &peer_id {
+        info!("Peer disconnected: {}...", &id[..16.min(id.len())]);
+        peers.write().await.remove(id);
+
+        let offline_msg = serde_json::json!({
+            "type": "peer_offline",
+            "peer_id": id,
+        }).to_string();
+
+        let map = peers.read().await;
+        for (_, p) in map.iter() {
+            let _ = p.tx.send(offline_msg.clone());
+        }
+    }
+
+    forward_task.abort();
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let args = Args::parse();
+
+    let filter = args.log_level.parse::<tracing_subscriber::filter::LevelFilter>()
+        .unwrap_or(tracing_subscriber::filter::LevelFilter::INFO);
+    tracing_subscriber::fmt()
+        .with_max_level(filter)
+        .init();
+
+    info!("=== Voryn Relay Node v0.2.0 ===");
+
+    let identity = NodeIdentity::load_or_create(&args.identity_file)?;
+    let node_pk = identity.public_key_hex.clone();
+    info!("PeerId: {}", node_pk);
+
+    let peers: PeerMap = Arc::new(RwLock::new(HashMap::new()));
+
+    // Health check endpoint
+    let health = warp::path("health")
+        .map(|| warp::reply::json(&serde_json::json!({"status": "ok", "version": "0.2.0"})));
+
+    // Peer count endpoint
+    let peers_for_status = peers.clone();
+    let status = warp::path("status")
+        .and(warp::any().map(move || peers_for_status.clone()))
+        .and_then(|peers: PeerMap| async move {
+            let count = peers.read().await.len();
+            let peer_ids: Vec<String> = peers.read().await.keys()
+                .map(|k| format!("{}...", &k[..16.min(k.len())]))
+                .collect();
+            Ok::<_, warp::Rejection>(warp::reply::json(&serde_json::json!({
+                "peers": count,
+                "peer_ids": peer_ids,
+            })))
+        });
+
+    // WebSocket endpoint
+    let peers_for_ws = peers.clone();
+    let node_pk_for_ws = node_pk.clone();
+    let ws_route = warp::path("ws")
+        .and(warp::ws())
+        .and(warp::any().map(move || peers_for_ws.clone()))
+        .and(warp::any().map(move || node_pk_for_ws.clone()))
+        .map(|ws: warp::ws::Ws, peers: PeerMap, node_pk: String| {
+            ws.on_upgrade(move |socket| handle_ws(socket, peers, node_pk))
+        });
+
+    let routes = ws_route.or(health).or(status);
+
+    let addr: std::net::SocketAddr = args.listen.parse()
+        .unwrap_or_else(|_| "0.0.0.0:4001".parse().unwrap());
+
+    info!("Listening on: {}", addr);
+    info!("WebSocket: ws://{}:{}/ws", addr.ip(), addr.port());
+    info!("Health: http://{}:{}/health", addr.ip(), addr.port());
+    info!("Status: http://{}:{}/status", addr.ip(), addr.port());
+    info!("Relay node is running.");
+
+    warp::serve(routes).run(addr).await;
+
+    Ok(())
 }
