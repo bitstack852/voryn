@@ -5,6 +5,7 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -22,6 +23,21 @@ export const ChatsScreen: React.FC = () => {
     const convs = await VorynBridge.getConversations();
     setConversations(convs);
   }, []);
+
+  const handleDeleteConversation = (conversationId: string, displayName: string | null) => {
+    const name = displayName ?? 'this chat';
+    Alert.alert('Delete Chat', `Remove all messages with ${name}?`, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          await VorynBridge.deleteConversation(conversationId);
+          await load();
+        },
+      },
+    ]);
+  };
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
@@ -63,6 +79,8 @@ export const ChatsScreen: React.FC = () => {
                 displayName: item.displayName ?? undefined,
               })
             }
+            onLongPress={() => handleDeleteConversation(item.conversationId, item.displayName)}
+            delayLongPress={400}
           >
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>

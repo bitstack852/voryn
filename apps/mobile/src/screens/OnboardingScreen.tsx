@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,12 +6,12 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   StatusBar,
+  Animated,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
-import { Logo } from '../components/Logo';
 import { colors } from '../theme/colors';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Onboarding'>;
@@ -20,6 +20,29 @@ export const OnboardingScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const [isLoading, setIsLoading] = useState(true);
   const [isCreating, setIsCreating] = useState(false);
+  const offsetBlue = useRef(new Animated.Value(0)).current;
+  const offsetRed = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const glitch = Animated.loop(
+      Animated.sequence([
+        Animated.delay(2200),
+        Animated.parallel([
+          Animated.timing(offsetBlue, { toValue: 1, duration: 80, useNativeDriver: true }),
+          Animated.timing(offsetRed, { toValue: 1, duration: 80, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(offsetBlue, { toValue: 0, duration: 80, useNativeDriver: true }),
+          Animated.timing(offsetRed, { toValue: 0, duration: 80, useNativeDriver: true }),
+        ]),
+      ]),
+    );
+    glitch.start();
+    return () => glitch.stop();
+  }, []);
+
+  const blueX = offsetBlue.interpolate({ inputRange: [0, 1], outputRange: [2, 6] });
+  const redX = offsetRed.interpolate({ inputRange: [0, 1], outputRange: [-2, -6] });
 
   useEffect(() => {
     const checkExisting = async () => {
@@ -58,8 +81,15 @@ export const OnboardingScreen: React.FC = () => {
       <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
 
       <View style={styles.header}>
-        <Logo size={86} />
-        <Text style={styles.wordmark}>VORYN</Text>
+        <View style={styles.glitchStack}>
+          <Animated.Text style={[styles.glitchText, styles.glitchBlue, { transform: [{ translateX: blueX }] }]}>
+            VORYN
+          </Animated.Text>
+          <Animated.Text style={[styles.glitchText, styles.glitchRed, { transform: [{ translateX: redX }] }]}>
+            VORYN
+          </Animated.Text>
+          <Text style={styles.glitchText}>VORYN</Text>
+        </View>
         <Text style={styles.tagline}>PEER · MESH · UNCENSORABLE</Text>
       </View>
 
@@ -101,8 +131,11 @@ const styles = StyleSheet.create({
     padding: 24,
   },
   header: { alignItems: 'center', marginTop: 80 },
-  wordmark: { fontSize: 36, fontWeight: '700', letterSpacing: 6, color: colors.textPrimary, marginTop: 18 },
-  tagline: { fontSize: 11, letterSpacing: 3, color: colors.accent, marginTop: 10, fontFamily: 'Menlo' },
+  glitchStack: { width: 260, height: 52, alignItems: 'center', justifyContent: 'center' },
+  glitchText: { position: 'absolute', fontSize: 36, fontWeight: '800', letterSpacing: 10, color: colors.textPrimary },
+  glitchBlue: { color: '#4A9EFF' },
+  glitchRed: { color: '#FF3B30' },
+  tagline: { fontSize: 11, letterSpacing: 3, color: colors.accent, marginTop: 18, fontFamily: 'Menlo' },
   buttonContainer: { width: '100%', alignItems: 'center' },
   button: {
     backgroundColor: '#FFFFFF',

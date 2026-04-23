@@ -36,6 +36,7 @@ export const ChatScreen: React.FC = () => {
     const init = async () => {
       const convId = await VorynBridge.getConversationId(contactPubkeyHex);
       setConversationId(convId);
+      await VorynBridge.markConversationRead(convId);
     };
     init();
   }, [contactPubkeyHex]);

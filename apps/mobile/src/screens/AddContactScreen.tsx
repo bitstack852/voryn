@@ -8,11 +8,15 @@ import {
   Alert,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootStackParamList } from '../navigation/RootNavigator';
 import * as VorynBridge from '../services/VorynBridge';
 import { colors } from '../theme/colors';
 
+type Nav = NativeStackNavigationProp<RootStackParamList, 'AddContact'>;
+
 export const AddContactScreen: React.FC = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<Nav>();
   const [publicKeyHex, setPublicKeyHex] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [introMessage, setIntroMessage] = useState('');
@@ -98,6 +102,10 @@ export const AddContactScreen: React.FC = () => {
           {isSending ? 'Sending…' : 'Send Request'}
         </Text>
       </TouchableOpacity>
+
+      <TouchableOpacity style={styles.scanButton} onPress={() => navigation.navigate('ScanQR')}>
+        <Text style={styles.scanButtonText}>Scan QR Code Instead</Text>
+      </TouchableOpacity>
     </View>
   );
 };
@@ -119,4 +127,6 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.3 },
   buttonText: { fontSize: 16, fontWeight: '600', color: colors.background },
+  scanButton: { marginTop: 16, alignItems: 'center', paddingVertical: 12 },
+  scanButtonText: { fontSize: 15, color: colors.accent },
 });

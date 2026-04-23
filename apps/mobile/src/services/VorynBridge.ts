@@ -569,6 +569,11 @@ export async function deleteMessage(messageId: string): Promise<void> {
   await saveMessagesToStorage(msgs.filter((m) => m.messageId !== messageId));
 }
 
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const msgs = await loadMessagesFromStorage();
+  await saveMessagesToStorage(msgs.filter((m) => m.conversationId !== conversationId));
+}
+
 export async function getMessages(
   conversationId: string,
   _limit: number = 50,
