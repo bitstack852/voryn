@@ -1,12 +1,13 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  Alert,
+  Animated,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../navigation/RootNavigator';
@@ -18,28 +19,23 @@ type Nav = NativeStackNavigationProp<RootStackParamList, 'Chat'>;
 export const ChatsScreen: React.FC = () => {
   const navigation = useNavigation<Nav>();
   const [conversations, setConversations] = useState<VorynBridge.Conversation[]>([]);
+  const swipeableRefs = useRef<Map<string, Swipeable>>(new Map());
 
   const load = useCallback(async () => {
     const convs = await VorynBridge.getConversations();
     setConversations(convs);
   }, []);
 
-  const handleDeleteConversation = (conversationId: string, displayName: string | null) => {
-    const name = displayName ?? 'this chat';
-    Alert.alert('Delete Chat', `Remove all messages with ${name}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          await VorynBridge.deleteConversation(conversationId);
-          await load();
-        },
-      },
-    ]);
+  const handleDeleteConversation = async (conversationId: string) => {
+    await VorynBridge.deleteConversation(conversationId);
+    await load();
   };
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    load();
+    // Close any open swipeables when returning to screen
+    swipeableRefs.current.forEach((ref) => ref?.close());
+  }, [load]));
 
   const formatTime = (ts: number) => {
     const d = new Date(ts);
@@ -52,6 +48,26 @@ export const ChatsScreen: React.FC = () => {
   const initials = (name: string | null, pubkey: string) => {
     if (name) return name[0].toUpperCase();
     return pubkey.slice(0, 2).toUpperCase();
+  };
+
+  const renderRightActions = (
+    progress: Animated.AnimatedInterpolation<number>,
+    conversationId: string,
+  ) => {
+    const translateX = progress.interpolate({
+      inputRange: [0, 1],
+      outputRange: [80, 0],
+    });
+    return (
+      <Animated.View style={[styles.deleteAction, { transform: [{ translateX }] }]}>
+        <TouchableOpacity
+          style={styles.deleteButton}
+          onPress={() => handleDeleteConversation(conversationId)}
+        >
+          <Text style={styles.deleteText}>Delete</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    );
   };
 
   if (conversations.length === 0) {
@@ -71,43 +87,53 @@ export const ChatsScreen: React.FC = () => {
         data={conversations}
         keyExtractor={(item) => item.conversationId}
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.row}
-            onPress={() =>
-              navigation.navigate('Chat', {
-                contactPubkeyHex: item.contactPubkeyHex,
-                displayName: item.displayName ?? undefined,
-              })
-            }
-            onLongPress={() => handleDeleteConversation(item.conversationId, item.displayName)}
-            delayLongPress={400}
+          <Swipeable
+            ref={(ref) => {
+              if (ref) swipeableRefs.current.set(item.conversationId, ref);
+              else swipeableRefs.current.delete(item.conversationId);
+            }}
+            renderRightActions={(progress) => renderRightActions(progress, item.conversationId)}
+            rightThreshold={40}
+            overshootRight={false}
           >
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {initials(item.displayName, item.contactPubkeyHex)}
-              </Text>
-            </View>
-            <View style={styles.info}>
-              <View style={styles.topRow}>
-                <Text style={styles.name} numberOfLines={1}>
-                  {item.displayName ?? item.contactPubkeyHex.slice(0, 12) + '…'}
+            <TouchableOpacity
+              style={styles.row}
+              onPress={() => {
+                swipeableRefs.current.get(item.conversationId)?.close();
+                navigation.navigate('Chat', {
+                  contactPubkeyHex: item.contactPubkeyHex,
+                  displayName: item.displayName ?? undefined,
+                });
+              }}
+              activeOpacity={0.7}
+            >
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {initials(item.displayName, item.contactPubkeyHex)}
                 </Text>
-                <Text style={styles.time}>{formatTime(item.lastMessageTimestamp)}</Text>
               </View>
-              <View style={styles.bottomRow}>
-                <Text style={styles.preview} numberOfLines={1}>
-                  {item.lastMessageText}
-                </Text>
-                {item.unreadCount > 0 && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>
-                      {item.unreadCount > 99 ? '99+' : item.unreadCount}
-                    </Text>
-                  </View>
-                )}
+              <View style={styles.info}>
+                <View style={styles.topRow}>
+                  <Text style={styles.name} numberOfLines={1}>
+                    {item.displayName ?? item.contactPubkeyHex.slice(0, 12) + '…'}
+                  </Text>
+                  <Text style={styles.time}>{formatTime(item.lastMessageTimestamp)}</Text>
+                </View>
+                <View style={styles.bottomRow}>
+                  <Text style={styles.preview} numberOfLines={1}>
+                    {item.lastMessageText}
+                  </Text>
+                  {item.unreadCount > 0 && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>
+                        {item.unreadCount > 99 ? '99+' : item.unreadCount}
+                      </Text>
+                    </View>
+                  )}
+                </View>
               </View>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </Swipeable>
         )}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
@@ -120,7 +146,7 @@ const styles = StyleSheet.create({
   emptyContainer: { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 32 },
   emptyTitle: { fontSize: 18, fontWeight: '600', color: colors.textPrimary },
   emptySubtitle: { fontSize: 14, color: colors.textSecondary, marginTop: 8, textAlign: 'center' },
-  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: colors.background },
   avatar: {
     width: 48, height: 48, borderRadius: 24,
     backgroundColor: colors.accentDark,
@@ -140,4 +166,10 @@ const styles = StyleSheet.create({
   },
   badgeText: { fontSize: 11, fontWeight: '700', color: colors.background },
   separator: { height: 1, backgroundColor: colors.border, marginLeft: 76 },
+  deleteAction: { width: 80, justifyContent: 'center' },
+  deleteButton: {
+    flex: 1, backgroundColor: '#FF3B30',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  deleteText: { color: '#FFFFFF', fontSize: 14, fontWeight: '600' },
 });
